@@ -1,6 +1,6 @@
 import Foundation
 
-public struct DAL<Mapper: ActuatorMapper, Learner: ActuatorLearner>: Sendable {
+public struct DAL<Mapper: ActuatorMapper, Learner: ActuatorLearner> {
     public enum ValidationError: Error, Equatable {
         case nonFiniteDelta
         case nonPositiveDelta
@@ -8,6 +8,8 @@ public struct DAL<Mapper: ActuatorMapper, Learner: ActuatorLearner>: Sendable {
         case missingLearningReport
         case parameterDeltaExceeded(Double, Double)
         case parameterDerivativeExceeded(Double, Double)
+        case nonFiniteDeltaValue(ActuatorIndex)
+        case unknownDeltaIndex(ActuatorIndex)
     }
 
     public var mapper: Mapper
@@ -44,7 +46,9 @@ public struct DAL<Mapper: ActuatorMapper, Learner: ActuatorLearner>: Sendable {
         let report = try learner.update(drives: drives, telemetry: telemetry, deltaTime: deltaTime)
         try validateLearningReport(report)
         let rawCommands = try mapper.map(drives: drives, telemetry: telemetry)
-        return try safetyFilter.apply(commands: rawCommands, deltaTime: deltaTime)
+        let deltas = try learner.infer(drives: drives, telemetry: telemetry, baseCommands: rawCommands)
+        let adjustedCommands = try applyDeltas(baseCommands: rawCommands, deltas: deltas)
+        return try safetyFilter.apply(commands: adjustedCommands, deltaTime: deltaTime)
     }
 
     private func validateLearningReport(_ report: LearningReport?) throws {
@@ -65,6 +69,33 @@ public struct DAL<Mapper: ActuatorMapper, Learner: ActuatorLearner>: Sendable {
                 report.parameterDerivativeNorm,
                 constraints.maxParameterDerivativeNorm
             )
+        }
+    }
+
+    private func applyDeltas(
+        baseCommands: [ActuatorCommand],
+        deltas: [ActuatorCommandDelta]
+    ) throws -> [ActuatorCommand] {
+        guard !deltas.isEmpty else {
+            return baseCommands
+        }
+
+        var deltaByIndex: [ActuatorIndex: Double] = [:]
+        for delta in deltas {
+            guard delta.value.isFinite else {
+                throw ValidationError.nonFiniteDeltaValue(delta.index)
+            }
+            deltaByIndex[delta.index, default: 0.0] += delta.value
+        }
+
+        let baseIndices = Set(baseCommands.map(\.index))
+        for index in deltaByIndex.keys where !baseIndices.contains(index) {
+            throw ValidationError.unknownDeltaIndex(index)
+        }
+
+        return try baseCommands.map { command in
+            let deltaValue = deltaByIndex[command.index] ?? 0.0
+            return try ActuatorCommand(index: command.index, value: command.value + deltaValue)
         }
     }
 }

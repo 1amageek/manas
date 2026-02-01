@@ -16,7 +16,7 @@ public extension ManasConformanceRunner {
         let result = try run(implementationId: implementationId, version: version, badges: badges)
         activeLogger.info("Conformance run completed", metadata: [
             "suiteVersion": "\(suiteVersion)",
-            "passed": "\(result.0.passed)"
+            "passed": "\(result.0.summary.passes)"
         ])
         return result
     }

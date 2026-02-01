@@ -48,6 +48,11 @@ DAL outputs: actuator commands.
 Learning is allowed **only** inside DAL, and must not access E_i, φ_k, or sensors.
 Hard safety filters (saturation/rate limits) always take precedence.
 
+## Optional MLX Learning (DAL Only)
+MLX-Swift integration is **optional** and isolated inside the DAL. It does not change Manas semantics
+and is disabled by default. See `manas/MLX_DAL_DESIGN.md` for boundaries, interfaces, and configuration.
+That document includes a compliance table mapping the MLX DAL learner to Manas design requirements.
+
 ## Consciousness Interface (Non‑Control)
 Hints only: bounded, low‑bandwidth, time‑decaying, and removable without loss of stability.
 
