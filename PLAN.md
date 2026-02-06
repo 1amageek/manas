@@ -1,44 +1,50 @@
 # Manas Implementation Plan
 
 ## 目的
-非シンボリック連続制御プロトコルの仕様準拠実装と、適合テストスイートの提供。
+学習可能な CNS‑style 制御プロトコルを実装し、同種交換に順応する。
 
 ## スコープ境界
-- **含む**: 非シンボル制約、エネルギー/フェーズ入出力、Manas Core、DAL 境界、適合テスト。
-- **含まない**: シミュレーション、プラント定義、UI、ミドルウェア。
+- **含む**: NerveBundle / Gating / Trunks / Core / Reflex / MotorNerve
+- **含まない**: プラント/シミュレーション/GUI
 
-## 主要設計方針
-- すべての境界識別子は数値 index のみ。
-- 連続性（L2/L∞）と TV 制約は**正規化**後に検証。
-- 学習は DAL 内に限定し、外部状態を参照しない。
-- 反射は常に非反射出力を優先して上書きできる。
+## モジュール分離
+- **ManasCore**: 層構造とデータ型
+- **ManasRuntime**: 設定/ログ/実行補助
+- **manas**: Core + Runtime の再エクスポート
+- 学習モジュールは配布対象外（学習は別ターゲット）
 
-## 実装フェーズ
-### 1) 型・境界の定義
-- `Signal`, `EnergyState`, `PhaseState`, `DriveIntent`
-- `OperatingEnvelope`（OED）
-- `DALTelemetry` 型（許可されたテレメトリのみ）
+## フェーズ
+### 1) レイヤー型とI/O契約
+- NerveBundle 出力、Gating 係数、Trunks 定義
+- DriveIntent + Reflex correction の合成経路
+- MotorNerve の写像境界（primitive → actuator）
 
-### 2) Manas Core
-- `ManasCore`（学習なし、決定論）
-- `Inhibition` / `Reflex` / `Regime` の明示的モデル
-- 出力の boundedness 強制
+### 2) Core / Reflex 最小実装
+- Core: mid‑timescale 学習可能ブロック
+- Reflex: HF向けマイクロ補正（clamp/damping/micro‑intent）
 
-### 3) DAL 境界
-- 入出力の安全フィルタ（飽和・レート制限）
-- 学習は DAL 内の限定 API でのみ許可
+### 3) 同種交換への順応
+- センサー/アクチュエータの変動に対する適応学習
+- 測定可能な回復指標をKuyuログと整合
 
-### 4) 適合テストスイート
-- 入力ファミリ: step / ramp / PRBS / chirp / band-limited noise
-- 非シンボル検査: 出力スナップ検出、モード誘導検出
-- フェーズ反トークン検査: 分散・帯域制約
+### 4) CMI の骨格（任意）
+- 非言語 latent での低帯域 I/O のみ定義
 
-## 主要マイルストーン
-- **M-1**: 型定義と OED の雛形
-- **M-2**: Manas Core + DAL 境界が動作
-- **M-3**: 適合テストスイート完成
+### 5) MLX モデルと学習（別モジュール）
+- ManasMLXModels: Core/Reflex モデル定義
+- ManasMLXTraining: 損失/最適化/学習ループ
+- ManasMLXRuntime: MLX モデルの推論接続
 
 ## 受け入れ条件
-- Manas 仕様（Paper 1）の MUST/SHALL を満たす
-- B0/B1/B2 バッジの宣言に必要な情報が揃う
+- 本仕様の MUST を満たす
+- Kuyu M1‑ATT で安定回復を示す
 
+## 仕様実装の優先順序
+1. **契約固定**: 各レイヤ入出力の次元、境界、有限性を固定。
+2. **NerveBundle 必須責務**: NB1–NB6 を満たす実装。
+3. **Gating reflex‑safe**: fast path 非ゲート化の保証。
+4. **Trunks 定義固定**: Energy/Phase/Quality/Spike の次元不変。
+5. **Reflex 非上書き補正**: clamp/damping/delta の境界保証。
+6. **Core bounded + hold**: 出力境界と未更新時の保持。
+7. **MotorNerve 写像**: primitive 活性を actuator 値へ連続写像。
+8. **Multi‑rate 実装**: Reflex/Core の周期差を強制。

@@ -1,4 +1,10 @@
-# MLX DAL Learning Design
+# MLX DAL Learning Design (Legacy v1)
+
+**Note:** This document reflects a **legacy MotorNerve‑only learning** design
+and uses the historical term **DAL**. DAL here means MotorNerve.
+Current Manas requires learning in **Core + Reflex** and uses no hard safety
+filter in DAL, so this document is archived for historical reference only.
+Do not extend it for new work.
 
 ## Purpose
 Integrate MLX‑Swift as an optional learner strictly inside the DAL boundary. Manas Core remains non‑learning and deterministic. This design adds no new semantics to Manas.
@@ -24,7 +30,7 @@ Integrate MLX‑Swift as an optional learner strictly inside the DAL boundary. M
 ## Non‑Negotiable Constraints
 - Manas Core never learns and never consumes MLX outputs.
 - DAL inputs are **drive intents + actuator‑local telemetry only**.
-- DAL outputs are actuator commands only.
+- DAL outputs are actuator values only.
 - Hard safety filters (saturation + rate limits) always take precedence.
 - Learning must not access E_i, phi_k, raw sensors, or world state.
 
@@ -49,13 +55,13 @@ The C/C++ bridge (`Cmlx`) exists but is not required directly by Manas.
 Manas Core -> DriveIntents
               |
               v
-        SafetyFilter (hard)
+        Hard safety filters (legacy, removed)
               |
               v
      Optional MLX Policy (DAL)
               |
               v
-      Actuator Commands
+      Actuator Values
 ```
 
 ## Alignment with Manas Design Philosophy
@@ -78,7 +84,7 @@ Manas Core -> DriveIntents
 - `telemetry: [ActuatorTelemetry]`
 
 ### DALDelta
-- `commandDeltas: [ActuatorCommandDelta]` (per actuator)
+- `commandDeltas: [ActuatorValueDelta]` (per actuator)
 
 ### LearningReport
 - `updatePeriod`, `maxDeltaNorm`, `maxDerivativeNorm`, `device`, `enabled`
