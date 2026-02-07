@@ -1,5 +1,6 @@
 import MLX
 
+@available(*, deprecated, message: "Use ManasMLXCoreConfig with descendingSize > 0 instead")
 public struct ManasMLXGoalCoreConfig: Sendable, Equatable, Codable {
     public let inputSize: Int
     public let embeddingSize: Int

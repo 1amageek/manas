@@ -61,6 +61,34 @@ public struct ManasMLXReflexBatch {
     }
 }
 
+public struct ManasMLXNerveSequenceBatch {
+    public let ascendingValues: MLXArray
+    public let ascendingTypeIndices: MLXArray
+    public let descendingValues: MLXArray?
+    public let descendingTypeIndices: MLXArray?
+    public let morphology: MLXArray?
+    public let targetCommands: MLXArray
+    public let actuatorTypeIndices: MLXArray
+
+    public init(
+        ascendingValues: MLXArray,
+        ascendingTypeIndices: MLXArray,
+        descendingValues: MLXArray? = nil,
+        descendingTypeIndices: MLXArray? = nil,
+        morphology: MLXArray? = nil,
+        targetCommands: MLXArray,
+        actuatorTypeIndices: MLXArray
+    ) {
+        self.ascendingValues = ascendingValues
+        self.ascendingTypeIndices = ascendingTypeIndices
+        self.descendingValues = descendingValues
+        self.descendingTypeIndices = descendingTypeIndices
+        self.morphology = morphology
+        self.targetCommands = targetCommands
+        self.actuatorTypeIndices = actuatorTypeIndices
+    }
+}
+
 public enum ManasMLXTrainer {
     public enum TrainingError: Error, Equatable {
         case auxDisabled
@@ -310,6 +338,79 @@ public enum ManasMLXTrainer {
                 await Task.yield()
             }
             epochLosses.append(totalLoss / Float(max(batches.count, 1)))
+            await Task.yield()
+        }
+
+        model.train(false)
+        return epochLosses
+    }
+
+    public static func trainNerveCoreSupervised(
+        model: ManasMLXCore,
+        batches: [ManasMLXNerveSequenceBatch],
+        config: ManasMLXTrainingConfig
+    ) -> [Float] {
+        let optimizer = Adam(learningRate: config.learningRate)
+
+        var epochLosses: [Float] = []
+        model.train(true)
+
+        for _ in 0..<config.epochs {
+            var totalLoss: Float = 0
+            for batch in batches {
+                let targets = ensureBatchTargets(batch.targetCommands)
+                let desc = batch.descendingValues
+                let morph = batch.morphology
+                let (lossValue, grads) = valueAndGrad(model: model) { model, trunks, targets in
+                    let output = model.forward(trunks: trunks, descending: desc, morphology: morph)
+                    let loss = mseLoss(predictions: output.drives, targets: targets, reduction: .mean)
+                    return loss * config.driveLossWeight
+                }(model, batch.ascendingValues, targets)
+                let clipped = clipIfNeeded(grads, maxNorm: config.maxGradNorm)
+                optimizer.update(model: model, gradients: clipped)
+                eval(model, optimizer)
+                totalLoss += lossValue.item(Float.self)
+            }
+            epochLosses.append(totalLoss / Float(max(batches.count, 1)))
+        }
+
+        model.train(false)
+        return epochLosses
+    }
+
+    @MainActor
+    public static func trainNerveCoreSupervisedAsync(
+        model: ManasMLXCore,
+        batches: [ManasMLXNerveSequenceBatch],
+        config: ManasMLXTrainingConfig,
+        onProgress: (@Sendable (_ epoch: Int, _ batch: Int, _ batchCount: Int, _ loss: Float) -> Void)? = nil
+    ) async -> [Float] {
+        let optimizer = Adam(learningRate: config.learningRate)
+
+        var epochLosses: [Float] = []
+        model.train(true)
+
+        for epochIndex in 0..<config.epochs {
+            var totalLoss: Float = 0
+            let batchCount = max(batches.count, 1)
+            for (index, batch) in batches.enumerated() {
+                let targets = ensureBatchTargets(batch.targetCommands)
+                let desc = batch.descendingValues
+                let morph = batch.morphology
+                let (lossValue, grads) = valueAndGrad(model: model) { model, trunks, targets in
+                    let output = model.forward(trunks: trunks, descending: desc, morphology: morph)
+                    let loss = mseLoss(predictions: output.drives, targets: targets, reduction: .mean)
+                    return loss * config.driveLossWeight
+                }(model, batch.ascendingValues, targets)
+                let clipped = clipIfNeeded(grads, maxNorm: config.maxGradNorm)
+                optimizer.update(model: model, gradients: clipped)
+                eval(model, optimizer)
+                let loss = lossValue.item(Float.self)
+                totalLoss += loss
+                onProgress?(epochIndex + 1, index + 1, batchCount, loss)
+                await Task.yield()
+            }
+            epochLosses.append(totalLoss / Float(batchCount))
             await Task.yield()
         }
 

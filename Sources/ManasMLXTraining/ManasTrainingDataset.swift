@@ -1,6 +1,7 @@
 import Foundation
 import MLX
 import ManasCore
+import ManasMLXModels
 
 public struct ManasTrainingDatasetMetadata: Sendable, Codable, Equatable {
     public let scenarioId: String
@@ -43,6 +44,24 @@ public struct ManasTrainingDatasetRecord: Sendable, Codable, Equatable {
     public let sensors: [ManasTrainingSensorSample]
     public let driveIntents: [ManasTrainingDriveIntent]
     public let reflexCorrections: [ManasTrainingReflexCorrection]
+    public let tiltRadians: Double?
+    public let omegaMagnitude: Double?
+
+    public init(
+        time: Double,
+        sensors: [ManasTrainingSensorSample],
+        driveIntents: [ManasTrainingDriveIntent],
+        reflexCorrections: [ManasTrainingReflexCorrection],
+        tiltRadians: Double? = nil,
+        omegaMagnitude: Double? = nil
+    ) {
+        self.time = time
+        self.sensors = sensors
+        self.driveIntents = driveIntents
+        self.reflexCorrections = reflexCorrections
+        self.tiltRadians = tiltRadians
+        self.omegaMagnitude = omegaMagnitude
+    }
 }
 
 public struct ManasTrainingDataset {
@@ -212,6 +231,92 @@ public struct ManasTrainingBatchBuilder {
         }
 
         return batches
+    }
+
+    public func makeWorldModelBatches(
+        dataset: ManasTrainingDataset,
+        pipeline: inout ManasTrunkPipeline,
+        rewardConfig: DenseRewardConfig = DenseRewardConfig()
+    ) throws -> [ManasMLXWorldModelBatch] {
+        try validate(dataset: dataset)
+        let vectors = try buildTrunkVectors(dataset: dataset, pipeline: &pipeline)
+        let targets = buildDriveTargets(dataset: dataset)
+        let rewards = buildRewards(dataset: dataset, driveTargets: targets, rewardConfig: rewardConfig)
+
+        guard vectors.count == targets.count else { return [] }
+        guard vectors.count >= sequenceLength else { return [] }
+
+        var batches: [ManasMLXWorldModelBatch] = []
+        let trunkSize = vectors[0].count
+
+        for start in 0...(vectors.count - sequenceLength) {
+            let trunkWindow = Array(vectors[start..<start + sequenceLength])
+            let targetWindow = Array(targets[start..<start + sequenceLength])
+            let rewardWindow = Array(rewards[start..<start + sequenceLength])
+
+            let trunksArray = MLXArray(
+                converting: trunkWindow.flatMap { $0 }.map(Double.init),
+                [sequenceLength, trunkSize]
+            )
+            let targetArray = MLXArray(
+                converting: targetWindow.flatMap { $0 }.map(Double.init),
+                [sequenceLength, driveCount]
+            )
+            let rewardArray = MLXArray(
+                converting: rewardWindow.map(Double.init),
+                [sequenceLength, 1]
+            )
+
+            // Continue = 1.0 for all steps except the very last in the dataset
+            var continueValues = Array(repeating: Float(1.0), count: sequenceLength)
+            if start + sequenceLength == vectors.count {
+                continueValues[sequenceLength - 1] = 0.0
+            }
+            let continueArray = MLXArray(
+                converting: continueValues.map(Double.init),
+                [sequenceLength, 1]
+            )
+
+            batches.append(ManasMLXWorldModelBatch(
+                trunks: trunksArray,
+                targetDrives: targetArray,
+                rewards: rewardArray,
+                continues: continueArray
+            ))
+            if let maxBatches, batches.count >= maxBatches {
+                break
+            }
+        }
+
+        return batches
+    }
+
+    private func buildRewards(
+        dataset: ManasTrainingDataset,
+        driveTargets: [[Float]],
+        rewardConfig: DenseRewardConfig
+    ) -> [Float] {
+        let records = dataset.records
+        var rewards: [Float] = []
+        rewards.reserveCapacity(records.count)
+
+        for (index, record) in records.enumerated() {
+            let tilt = Float(record.tiltRadians ?? 0)
+            let omega = Float(record.omegaMagnitude ?? 0)
+            let activations = driveTargets[index]
+            let previousActivations: [Float]? = index > 0 ? driveTargets[index - 1] : nil
+
+            let reward = DenseRewardComputer.computeReward(
+                tiltRadians: tilt,
+                omegaMagnitude: omega,
+                driveActivations: activations,
+                previousDriveActivations: previousActivations,
+                config: rewardConfig
+            )
+            rewards.append(reward)
+        }
+
+        return rewards
     }
 
     private func validate(dataset: ManasTrainingDataset) throws {

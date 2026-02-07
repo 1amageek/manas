@@ -1,6 +1,7 @@
 import MLX
 import MLXNN
 
+@available(*, deprecated, message: "Use ManasMLXCore with descendingSize > 0 instead")
 public final class ManasMLXGoalCore: Module {
     public let config: ManasMLXGoalCoreConfig
 
@@ -81,22 +82,10 @@ public final class ManasMLXGoalCore: Module {
     }
 
     private func normalizeSequence(_ input: MLXArray) -> MLXArray {
-        switch input.ndim {
-        case 1:
-            return input.reshaped([1, 1, input.shape[0]])
-        case 2:
-            return input.reshaped([1, input.shape[0], input.shape[1]])
-        default:
-            return input
-        }
+        MLXModelUtils.normalizeSequence(input)
     }
 
     private func sanitizeAux(_ aux: MLXArray) -> MLXArray? {
-        guard aux.shape.last == config.auxSize else { return nil }
-        let invalid = logicalOr(isNaN(aux), isInf(aux))
-        if any(invalid).item(Bool.self) {
-            return nil
-        }
-        return aux
+        MLXModelUtils.sanitizeAux(aux, expectedSize: config.auxSize)
     }
 }
