@@ -35,6 +35,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../manas-training-data"),
         .package(url: "https://github.com/apple/swift-log", from: "1.9.1"),
         .package(url: "https://github.com/apple/swift-configuration", from: "1.0.2"),
         .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.29.1"),
@@ -61,6 +62,7 @@ let package = Package(
         .target(
             name: "ManasMLXTraining",
             dependencies: [
+                .product(name: "ManasTrainingData", package: "manas-training-data"),
                 "ManasMLXModels",
                 "ManasCore",
                 .product(name: "MLX", package: "mlx-swift"),
@@ -88,6 +90,9 @@ let package = Package(
             dependencies: [
                 "ManasCore",
                 "ManasRuntime",
+                "ManasMLXModels",
+                "ManasMLXRuntime",
+                .product(name: "MLX", package: "mlx-swift"),
             ]
         ),
     ]

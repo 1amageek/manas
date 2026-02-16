@@ -4,6 +4,11 @@ import ManasCore
 import ManasMLXModels
 
 public struct MLXHybridReflexController: ReflexController {
+    public enum ControllerError: Error, Equatable {
+        case outputSizeMismatch(expected: Int, actual: Int)
+        case nonFiniteOutput(index: Int)
+    }
+
     public var model: ManasMLXHybridReflex
     public var activationRange: ClosedRange<Double>
 
@@ -33,11 +38,17 @@ public struct MLXHybridReflexController: ReflexController {
         let values = output.combined.asArray(Float.self)
         let actuatorCount = model.config.actuatorCount
 
-        return (0..<actuatorCount).compactMap { index in
-            guard index < values.count else { return nil }
+        guard values.count >= actuatorCount else {
+            throw ControllerError.outputSizeMismatch(expected: actuatorCount, actual: values.count)
+        }
+
+        return try (0..<actuatorCount).map { index in
             let raw = Double(values[index])
+            guard raw.isFinite else {
+                throw ControllerError.nonFiniteOutput(index: index)
+            }
             let clamped = min(max(raw, activationRange.lowerBound), activationRange.upperBound)
-            return try? ReflexCorrection(
+            return try ReflexCorrection(
                 driveIndex: DriveIndex(UInt32(index)),
                 clampMultiplier: 1.0,
                 damping: 0.0,

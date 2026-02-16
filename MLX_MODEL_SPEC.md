@@ -1,66 +1,90 @@
-# Manas MLX Model Specification (M1‑ATT)
+# Manas MLX Model Specification (Design-Aligned)
 
 ## Purpose
-Define the **learnable model architecture** for Manas using MLX Swift.
-This document covers **Core/Reflex model structure** and training phases for M1
-(quadcopter attitude stabilization with same‑type swappability).
+Define the MLX model contract for Manas aligned with `MANAS_NERVE_NETWORK_DESIGN.md`.
+This document specifies Core/Reflex model behavior, training boundaries, and runtime
+mapping constraints.
+
+## Baseline Priority
+- `MANAS_NERVE_NETWORK_DESIGN.md` is the architecture baseline.
+- This file defines MLX implementation constraints and must stay consistent with it.
 
 ## Module Boundaries
-- **ManasCore**: protocol layers + DSP (NerveBundle/Gating/Trunks/MotorNerve).
-- **ManasRuntime**: config/logging for inference.
-- **ManasMLXModels**: MLX model definitions + weight IO.
-- **ManasMLXTraining**: training loop, losses, optimizers (not required for model delivery).
-
-## MLX Build Note
-MLX Swift relies on Metal resources; for training and GPU execution, build and run
-through **Xcode/xcodebuild**. SwiftPM CLI builds are supported for library integration
-but may not include Metal resources for runtime execution.
+- **ManasCore**: protocol layers and deterministic contracts.
+- **ManasRuntime**: configuration and logging for runtime execution.
+- **ManasMLXModels**: model definitions (Core/Reflex/LoRA/shared encoder-decoder).
+- **ManasMLXRuntime**: adapters to `CoreController` and `ReflexController`.
+- **ManasMLXTraining**: training loops, losses, and optimization.
 
 ## Inputs / Outputs
-- **Inputs**: Trunks (Energy / Phase / Quality / Spike) at Core rate.
-- **Outputs**: DriveIntent (continuous, bounded **primitive activations**) + Reflex corrections.
-- **Reflex output** is **non‑overwriting** (clamp/damping/micro‑intent only).
-DriveIntent semantics are defined by the **body/MotorNerve descriptor** for the target robot.
+- **Inputs**:
+  - ascending channels (sensor-derived streams),
+  - optional descending channels (planner/context bias; typed scalar modulation),
+  - optional morphology/context vectors.
+- **Core output**: bounded command activations interpreted as `DriveIntent`.
+- **Reflex output**: bounded non-overwriting corrections (`clamp`, `damping`, `delta`).
+- **Final actuator values** are obtained through MotorNerve protocol mapping.
+- **Upward feedback contract**: runtime MUST support exporting salience/risk/uncertainty
+  summaries derived from internal control state for conscious-layer consumers.
+  - Minimum summary fields: `salience`, `risk`, `uncertainty`, `constraintPressure`,
+    and `recoveryState`.
 
-## Core Architecture (M1 Reference)
-- **Encoder**: 2‑layer MLP → embedding `e_t`.
-- **Fast state**: `GRU_fast(z_fast, e_t)` (100–400 Hz).
-- **Slow state**: `GRU_slow(c_slow, pool(e_t))` (5–20 Hz).
-- **Policy head**: DriveIntent from `[z_fast, c_slow]`.
-- **Aux head (recommended)**: predict next Trunks / next ω for swap adaptation.
+## Core Architecture
+### Channel-Agnostic Path (Preferred)
+- Shared channel encoding with type embeddings for ascending + descending channels.
+- Pool/token integration over variable channel counts.
+- Core state model:
+  - default: pooled features + dual-GRU (fast + slow),
+  - optional: attention-based token integration for richer morphologies/tasks.
+- Optional adaptation module producing morphology/environment latent factors.
+- Shared actuator decoder emits per-channel command activations.
 
-## Reflex Architecture (M1 Reference)
-- **Ensemble of small MLPs** (8–16 units).
-- Inputs: fast NerveBundle outputs (spike/high‑pass, vibration).
-- Outputs: clamp gains, damping terms, micro‑intent (bounded).
+### Baseline Configuration (Normative Default)
+Unless a benchmark profile explicitly overrides, MLX runtime uses:
+- Core variant: pooled token integration + dual-GRU.
+- `typeEmbeddingDim = 16`.
+- Descending normalization: descriptor-range normalization when available,
+  otherwise bounded running normalization with clip `[-1, 1]`.
+- Maximum descending channel count: `64` (higher counts require upstream compression).
+- Runtime channel-drop handling: fixed catalog + validity mask with neutral-bias decay.
 
-## Losses (Training)
-- **BC loss**: stabilize attitude from baseline controller traces.
-- **Aux prediction loss**: next Trunks / next ω (swap adaptation).
-- **Reflex regularization**: avoid excessive clamp/damping.
-- **Safety penalties**: saturation, rate limit violations.
+### Compatibility Path
+- Legacy fixed-input core path is allowed for backward compatibility.
+- New model configurations must prefer descriptor-driven typed mode.
 
-## Training Phases
-1. **BC warm‑start**: Core learns stable control from PID/LQR traces.
-2. **Swap adaptation**: training with sensor/actuator swap events.
-3. **Reflex HF stress**: impulse/vibration/glitch events.
-4. **Optional RL fine‑tuning**: performance improvements only after stability.
+## Reflex Architecture
+- Hybrid reflex mode is supported:
+  - analytical stabilization component (e.g., PD-like damping),
+  - learned residual component with strict clipping/bounds.
+- Reflex remains non-overwriting and must not bypass MotorNerve boundary semantics.
+- Reflex safety stabilization takes precedence over conflicting descending bias at
+  emergency timescales.
 
-## Model Size Guidance (M1)
-- Encoder: 128–256
-- GRU_fast: 256–512
-- GRU_slow: 128–256
-- Reflex MLP: 64→64, ×8–16
+## Learning and LoRA Boundaries
+- Primary learning location is Core/Reflex model parameters.
+- LoRA adaptation is allowed for Core/Reflex model submodules, including shared
+  encoder/decoder components.
+- MotorNerve protocol boundary remains explicit and deterministic even when output
+  semantics are actuator-typed for a profile.
 
-## Deliverables
-- MLX model checkpoint (Core + Reflex).
-- Training config (suite IDs, seeds, swap ranges, HF set).
-- Evaluation report with recovery/overshoot/HF scores.
+## Training Phases (Reference)
+1. Interface and descriptor alignment (ascending/descending/type maps).
+2. Teacher-assisted warm start (BC/IL baseline).
+3. Domain randomization and robustness training.
+4. Sim-real co-training with constrained adaptation (LoRA-focused).
+5. Optional imagination/RL fine-tuning after stability gates are met.
 
-## Runtime Integration
-- **ManasMLXRuntime** bridges MLX models to `CoreController` and `ReflexController`.
-- DriveIntent and Reflex corrections are produced from MLX outputs with bounded mapping.
+## Safety and Runtime Invariants
+- Multi-rate contract must hold (Reflex faster than Core).
+- Reflex-safe gating must be preserved.
+- Outputs must remain finite, bounded, and descriptor-consistent.
+- Runtime adapters must map MLX outputs into `DriveIntent` + `ReflexCorrection`
+  before MotorNerve application.
+- Descending channels are interpreted as modulation/bias signals; low-level safety
+  control authority remains inside Manas runtime loops.
+- Runtime arbitration must apply Reflex correction and stabilization precedence
+  before MotorNerve mapping when descending bias conflicts with immediate safety.
 
-## Dataset Ingestion
-- `ManasTrainingDataset` loads `meta.json` + `records.jsonl` exported by Kuyu.
-- `ManasTrunkPipeline` converts sensor samples into Trunks for MLX training.
+## Build Note
+MLX Swift relies on Metal resources; for training and GPU execution, use Xcode/xcodebuild.
+SwiftPM CLI builds are valid for integration and contract verification.

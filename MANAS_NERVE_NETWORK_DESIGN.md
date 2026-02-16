@@ -1,6 +1,6 @@
 # Manas Nerve Network Design
 
-## Status: Draft (2026-02-07)
+## Status: Active Baseline (2026-02-16)
 
 General-purpose nerve network architecture for Sim-to-Real robotic control.
 
@@ -587,16 +587,24 @@ Fix: ManasMLXCoreConfig is generated FROM RobotDescriptor at initialization.
 
 ---
 
-## 9. Open Questions
+## 9. Decision Log (Current Baseline)
 
-- [ ] Attention (Variant A) vs Pool+GRU (Variant B) — benchmark on drone first
-- [ ] Type embedding dimension (8? 16? 32?)
-- [ ] Descending channel normalization (per-type scale? learned? raw?)
-- [ ] RSSM imagination horizon for different morphologies
-- [ ] Co-training OT loss weight β tuning
-- [ ] Minimum real demos per morphology for reliable transfer
-- [ ] Online LoRA update on-device (TinyLoRA feasibility on iPhone)
-- [ ] Pooling strategy for variable-length channel bundles (mean? attention? weighted?)
-- [ ] Maximum number of descending channels before pooling becomes lossy
-- [ ] How to handle descending channels appearing/disappearing at runtime
-      (e.g., VLA connection drops → K changes from d to 0)
+The following decisions are fixed for current implementation unless superseded
+by benchmark evidence:
+
+| Topic | Baseline Decision | Status |
+|---|---|---|
+| Core variant | Use Variant B (Pool + Dual GRU) as default path. Variant A (attention) remains optional for benchmark branches. | Decided |
+| Type embedding dimension | `typeEmbeddingDim = 16` for ascending/descending/actuator channels. | Decided |
+| Descending normalization | Per-channel normalization from descriptor range when available; otherwise bounded running normalization with hard clip to `[-1, 1]`. | Decided |
+| RSSM imagination horizon | Default horizon `20` (tune window `15..30` by morphology). | Decided |
+| Co-training OT weight | Start with `beta = 0.1` (search band `0.05..0.2`). | Decided |
+| Minimum real demos | Start at `20` demos per morphology (expand to `50` for hard domains). | Decided |
+| Pooling strategy | Type-aware weighted mean pooling for variable channels as baseline. | Decided |
+| Max descending channels | Baseline cap `K <= 64`; larger K requires upstream compression/projection. | Decided |
+| Runtime K changes | Use fixed descriptor catalog + validity mask. Missing channels decay to neutral bias; reappearance is non-disruptive. | Decided |
+| Online TinyLoRA | Not in baseline runtime. Treat as post-M2 research track only. | Deferred |
+
+### Rationale Notes
+- Decisions prioritize deterministic deployment and low-latency execution first.
+- Research-grade alternatives are preserved as optional branches, not baseline requirements.

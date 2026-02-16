@@ -4,6 +4,10 @@ import ManasCore
 import ManasMLXModels
 
 public struct MLXDescendingCoreController: GoalConditionedCoreController {
+    public enum ControllerError: Error, Equatable {
+        case nonFiniteOutput(index: Int)
+    }
+
     public var model: ManasMLXCore
     public var state: ManasMLXCoreState?
     public var activationRange: ClosedRange<Double>
@@ -42,9 +46,12 @@ public struct MLXDescendingCoreController: GoalConditionedCoreController {
         eval(last)
 
         let values = last.asArray(Float.self)
-        return values.enumerated().compactMap { index, value in
+        return try values.enumerated().map { index, value in
             let clamped = min(max(Double(value), activationRange.lowerBound), activationRange.upperBound)
-            return try? DriveIntent(index: DriveIndex(UInt32(index)), activation: clamped)
+            guard clamped.isFinite else {
+                throw ControllerError.nonFiniteOutput(index: index)
+            }
+            return try DriveIntent(index: DriveIndex(UInt32(index)), activation: clamped)
         }
     }
 

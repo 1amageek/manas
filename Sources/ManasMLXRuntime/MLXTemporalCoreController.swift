@@ -49,9 +49,8 @@ public struct MLXTemporalCoreController: TemporalCoreController {
                 let vals = row.asArray(Float.self)
                 for (d, val) in vals.enumerated() {
                     let clamped = min(max(Double(val), activationRange.lowerBound), activationRange.upperBound)
-                    if let intent = try? DriveIntent(index: DriveIndex(UInt32(d)), activation: clamped) {
-                        stepIntents.append(intent)
-                    }
+                    let intent = try DriveIntent(index: DriveIndex(UInt32(d)), activation: clamped)
+                    stepIntents.append(intent)
                 }
             }
 
@@ -68,12 +67,11 @@ public struct MLXTemporalCoreController: TemporalCoreController {
                     guard start < stepIntents.count else { return nil }
                     return stepIntents[start]
                 }
-                if let window = try? TemporalDriveWindow(
+                let window = try TemporalDriveWindow(
                     horizon: Array(horizonIntents.prefix(steps)),
                     intervalSeconds: intervalSeconds
-                ) {
-                    windows.append(window)
-                }
+                )
+                windows.append(window)
             }
         }
 

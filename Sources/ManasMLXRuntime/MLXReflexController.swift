@@ -4,6 +4,11 @@ import ManasCore
 import ManasMLXModels
 
 public struct ManasMLXReflexController: ReflexController {
+    public enum ControllerError: Error, Equatable {
+        case outputSizeMismatch(head: String, expected: Int, actual: Int)
+        case nonFiniteOutput(head: String, index: Int)
+    }
+
     public var model: ManasMLXReflex
     public var deltaRange: ClosedRange<Double>
 
@@ -31,28 +36,42 @@ public struct ManasMLXReflexController: ReflexController {
         let delta = output.delta.asArray(Float.self)
         let driveCount = model.config.driveCount
 
-        return (0..<driveCount).map { index in
-            let c = clampValue(Double(clamp[safe: index] ?? 1.0), min: 0.0, max: 1.0)
-            let d = clampValue(Double(damping[safe: index] ?? 0.0), min: 0.0, max: 1.0)
-            let raw = Double(delta[safe: index] ?? 0.0)
+        guard clamp.count >= driveCount else {
+            throw ControllerError.outputSizeMismatch(head: "clamp", expected: driveCount, actual: clamp.count)
+        }
+        guard damping.count >= driveCount else {
+            throw ControllerError.outputSizeMismatch(head: "damping", expected: driveCount, actual: damping.count)
+        }
+        guard delta.count >= driveCount else {
+            throw ControllerError.outputSizeMismatch(head: "delta", expected: driveCount, actual: delta.count)
+        }
+
+        return try (0..<driveCount).map { index in
+            let cRaw = Double(clamp[index])
+            let dRaw = Double(damping[index])
+            let raw = Double(delta[index])
+            guard cRaw.isFinite else {
+                throw ControllerError.nonFiniteOutput(head: "clamp", index: index)
+            }
+            guard dRaw.isFinite else {
+                throw ControllerError.nonFiniteOutput(head: "damping", index: index)
+            }
+            guard raw.isFinite else {
+                throw ControllerError.nonFiniteOutput(head: "delta", index: index)
+            }
+            let c = clampValue(cRaw, min: 0.0, max: 1.0)
+            let d = clampValue(dRaw, min: 0.0, max: 1.0)
             let t = clampValue(raw, min: deltaRange.lowerBound, max: deltaRange.upperBound)
-            return try? ReflexCorrection(
+            return try ReflexCorrection(
                 driveIndex: DriveIndex(UInt32(index)),
                 clampMultiplier: c,
                 damping: d,
                 delta: t
             )
-        }.compactMap { $0 }
+        }
     }
 
     private func clampValue(_ value: Double, min: Double, max: Double) -> Double {
         Swift.max(min, Swift.min(max, value))
-    }
-}
-
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        guard index >= 0 && index < count else { return nil }
-        return self[index]
     }
 }

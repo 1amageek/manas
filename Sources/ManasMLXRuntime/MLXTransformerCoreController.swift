@@ -4,6 +4,10 @@ import ManasCore
 import ManasMLXModels
 
 public struct MLXTransformerCoreController: CoreController, GoalConditionedCoreController {
+    public enum ControllerError: Error, Equatable {
+        case nonFiniteOutput(index: Int)
+    }
+
     public var model: ManasMLXTransformerCore
     public var activationRange: ClosedRange<Double>
 
@@ -38,10 +42,7 @@ public struct MLXTransformerCoreController: CoreController, GoalConditionedCoreC
         eval(last)
 
         let values = last.asArray(Float.self)
-        return values.enumerated().compactMap { index, value in
-            let clamped = min(max(Double(value), activationRange.lowerBound), activationRange.upperBound)
-            return try? DriveIntent(index: DriveIndex(UInt32(index)), activation: clamped)
-        }
+        return try buildDriveIntents(values)
     }
 
     public mutating func update(
@@ -76,10 +77,7 @@ public struct MLXTransformerCoreController: CoreController, GoalConditionedCoreC
         eval(last)
 
         let values = last.asArray(Float.self)
-        return values.enumerated().compactMap { index, value in
-            let clamped = min(max(Double(value), activationRange.lowerBound), activationRange.upperBound)
-            return try? DriveIntent(index: DriveIndex(UInt32(index)), activation: clamped)
-        }
+        return try buildDriveIntents(values)
     }
 
     public mutating func reset() {
@@ -91,5 +89,15 @@ public struct MLXTransformerCoreController: CoreController, GoalConditionedCoreC
         + bundle.phase.map(Float.init)
         + bundle.quality.map(Float.init)
         + bundle.spike.map(Float.init)
+    }
+
+    private func buildDriveIntents(_ values: [Float]) throws -> [DriveIntent] {
+        try values.enumerated().map { index, value in
+            let clamped = min(max(Double(value), activationRange.lowerBound), activationRange.upperBound)
+            guard clamped.isFinite else {
+                throw ControllerError.nonFiniteOutput(index: index)
+            }
+            return try DriveIntent(index: DriveIndex(UInt32(index)), activation: clamped)
+        }
     }
 }

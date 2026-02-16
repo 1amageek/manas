@@ -8,8 +8,38 @@ public enum LoRAAdapter {
         case fileNotFound
     }
 
-    public static func applyToCore(model: ManasMLXCore, config: LoRAConfig) -> ManasMLXLoRACore {
-        ManasMLXLoRACore(from: model, loraConfig: config)
+    public enum CoreAdapter {
+        case legacy(ManasMLXLoRACore)
+        case nerve(ManasMLXNerveLoRACore)
+    }
+
+    public enum CoreAdapterKind: Equatable {
+        case legacy
+        case nerve
+    }
+
+    /// Legacy-only API for flat core models.
+    ///
+    /// For shared encoder/decoder, descending inputs, morphology token, or adaptation,
+    /// use `applyToCoreAuto` (or `applyToNerveCore`) instead.
+    public static func applyToCore(model: ManasMLXCore, config: LoRAConfig) throws -> ManasMLXLoRACore {
+        guard coreAdapterKind(for: model.config) == .legacy else {
+            throw AdapterError.incompatibleModel
+        }
+        return ManasMLXLoRACore(from: model, loraConfig: config)
+    }
+
+    /// Selects the appropriate LoRA wrapper based on core configuration.
+    public static func applyToCoreAuto(model: ManasMLXCore, config: LoRAConfig) -> CoreAdapter {
+        if coreAdapterKind(for: model.config) == .legacy {
+            return .legacy(ManasMLXLoRACore(from: model, loraConfig: config))
+        }
+        return .nerve(ManasMLXNerveLoRACore(from: model, loraConfig: config))
+    }
+
+    /// Returns which LoRA wrapper should be used for a given core configuration.
+    public static func coreAdapterKind(for config: ManasMLXCoreConfig) -> CoreAdapterKind {
+        isLegacyCoreCompatible(config) ? .legacy : .nerve
     }
 
     public static func applyToReflex(model: ManasMLXReflex, config: LoRAConfig) -> ManasMLXLoRAReflex {
@@ -28,6 +58,15 @@ public enum LoRAAdapter {
         modules["driveHead"] = .value(driveHeadMerged)
         merged.update(modules: modules)
         return merged
+    }
+
+    public static func mergeCore(_ adapter: CoreAdapter) -> ManasMLXCore {
+        switch adapter {
+        case .legacy(let loraCore):
+            return mergeCore(loraCore)
+        case .nerve(let loraCore):
+            return mergeNerveCore(loraCore)
+        }
     }
 
     public static func mergeReflex(_ loraReflex: ManasMLXLoRAReflex) -> ManasMLXReflex {
@@ -88,5 +127,15 @@ public enum LoRAAdapter {
         let loaded = try loadArrays(url: url)
         let nested = ModuleParameters.unflattened(loaded)
         model.update(parameters: nested)
+    }
+
+    private static func isLegacyCoreCompatible(_ config: ManasMLXCoreConfig) -> Bool {
+        !config.rssmEnabled
+            && !config.descendingEnabled
+            && !config.typeEmbeddingEnabled
+            && !config.sharedEncoderEnabled
+            && !config.sharedDecoderEnabled
+            && config.morphologyDim == 0
+            && !config.adaptationEnabled
     }
 }

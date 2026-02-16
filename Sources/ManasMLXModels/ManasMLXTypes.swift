@@ -58,8 +58,14 @@ public struct ManasMLXCoreConfig: Sendable, Equatable, Codable {
     }
     public var gruInputSize: Int {
         if sharedEncoderEnabled {
-            // ascPool + descPool + morphToken (3 × embeddingSize)
-            let pools = morphologyDim > 0 ? 3 : (descendingEnabled ? 2 : 1)
+            // ascPool is always present. descPool / morphToken are optional.
+            var pools = 1
+            if descendingEnabled {
+                pools += 1
+            }
+            if morphologyDim > 0 {
+                pools += 1
+            }
             return embeddingSize * pools
         } else if descendingEnabled {
             return embeddingSize + descendingEmbeddingSize
