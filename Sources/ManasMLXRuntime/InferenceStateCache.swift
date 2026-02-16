@@ -3,7 +3,7 @@ import ManasMLXModels
 
 /// Caches GRU hidden states across inference steps to avoid redundant computation.
 ///
-/// For GRU-based models (ManasMLXCore, ManasMLXGoalCore), the hidden state from
+/// For GRU-based models (ManasMLXCore), the hidden state from
 /// the previous step is fed as input to the next step. This cache stores that
 /// state and provides reset/warmup functionality.
 public struct InferenceStateCache {
