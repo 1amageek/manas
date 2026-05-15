@@ -23,6 +23,47 @@ public struct ManasTrunkPipeline {
     }
 }
 
+public struct ManasTrainingWindowSampler: Sendable, Equatable {
+    public let maxBatches: Int?
+
+    public init(maxBatches: Int? = nil) {
+        self.maxBatches = maxBatches
+    }
+
+    public func selectedWindowStarts(maxStart: Int) -> [Int] {
+        guard maxStart >= 0 else { return [] }
+        let windowCount = maxStart + 1
+        guard let maxBatches, maxBatches < windowCount else {
+            return Array(0...maxStart)
+        }
+        guard maxBatches > 1 else {
+            return [maxStart / 2]
+        }
+
+        var selected: [Int] = []
+        selected.reserveCapacity(maxBatches)
+        var seen: Set<Int> = []
+        for index in 0..<maxBatches {
+            let fraction = Double(index) / Double(maxBatches - 1)
+            let start = Int((fraction * Double(maxStart)).rounded())
+            if seen.insert(start).inserted {
+                selected.append(start)
+            }
+        }
+
+        if selected.count < maxBatches {
+            for start in 0...maxStart where seen.insert(start).inserted {
+                selected.append(start)
+                if selected.count == maxBatches {
+                    break
+                }
+            }
+        }
+
+        return selected.sorted()
+    }
+}
+
 public struct ManasTrainingBatchBuilder {
     public enum ValidationError: Error, Equatable {
         case invalidSequenceLength
@@ -32,11 +73,13 @@ public struct ManasTrainingBatchBuilder {
     public let sequenceLength: Int
     public let driveCount: Int
     public let maxBatches: Int?
+    private let windowSampler: ManasTrainingWindowSampler
 
     public init(sequenceLength: Int, driveCount: Int, maxBatches: Int? = nil) {
         self.sequenceLength = sequenceLength
         self.driveCount = driveCount
         self.maxBatches = maxBatches
+        self.windowSampler = ManasTrainingWindowSampler(maxBatches: maxBatches)
     }
 
     public func makeCoreBatches(
@@ -53,7 +96,7 @@ public struct ManasTrainingBatchBuilder {
         var batches: [ManasMLXSequenceBatch] = []
         let trunkSize = vectors[0].count
 
-        for start in 0...(vectors.count - sequenceLength) {
+        for start in selectedWindowStarts(maxStart: vectors.count - sequenceLength) {
             let trunkWindow = Array(vectors[start..<start + sequenceLength])
             let targetWindow = Array(targets[start..<start + sequenceLength])
 
@@ -88,7 +131,7 @@ public struct ManasTrainingBatchBuilder {
         var batches: [ManasMLXAuxSequenceBatch] = []
         let trunkSize = vectors[0].count
 
-        for start in 0...(vectors.count - sequenceLength - 1) {
+        for start in selectedWindowStarts(maxStart: vectors.count - sequenceLength - 1) {
             let trunkWindow = Array(vectors[start..<start + sequenceLength])
             let targetWindow = Array(targets[start..<start + sequenceLength])
             let auxTarget = vectors[start + sequenceLength]
@@ -162,7 +205,10 @@ public struct ManasTrainingBatchBuilder {
         var batches: [ManasMLXWorldModelBatch] = []
         let trunkSize = vectors[0].count
 
-        for start in 0...(vectors.count - sequenceLength) {
+        for start in selectedWindowStarts(maxStart: vectors.count - sequenceLength) {
+            guard !crossesEpisodeBoundary(records: dataset.records, start: start, length: sequenceLength) else {
+                continue
+            }
             let trunkWindow = Array(vectors[start..<start + sequenceLength])
             let targetWindow = Array(targets[start..<start + sequenceLength])
             let rewardWindow = Array(rewards[start..<start + sequenceLength])
@@ -180,9 +226,9 @@ public struct ManasTrainingBatchBuilder {
                 [sequenceLength, 1]
             )
 
-            // Continue = 1.0 for all steps except the very last in the dataset
             var continueValues = Array(repeating: Float(1.0), count: sequenceLength)
-            if start + sequenceLength == vectors.count {
+            let terminalRecord = dataset.records[start + sequenceLength - 1]
+            if terminalRecord.done == true || terminalRecord.truncated == true || start + sequenceLength == vectors.count {
                 continueValues[sequenceLength - 1] = 0.0
             }
             let continueArray = MLXArray(
@@ -196,9 +242,6 @@ public struct ManasTrainingBatchBuilder {
                 rewards: rewardArray,
                 continues: continueArray
             ))
-            if let maxBatches, batches.count >= maxBatches {
-                break
-            }
         }
 
         return batches
@@ -214,6 +257,10 @@ public struct ManasTrainingBatchBuilder {
         rewards.reserveCapacity(records.count)
 
         for (index, record) in records.enumerated() {
+            if let reward = record.reward {
+                rewards.append(Float(reward))
+                continue
+            }
             let tilt = Float(record.tiltRadians ?? 0)
             let omega = Float(record.omegaMagnitude ?? 0)
             let activations = driveTargets[index]
@@ -230,6 +277,16 @@ public struct ManasTrainingBatchBuilder {
         }
 
         return rewards
+    }
+
+    private func crossesEpisodeBoundary(
+        records: [ManasTrainingDatasetRecord],
+        start: Int,
+        length: Int
+    ) -> Bool {
+        let window = records[start..<start + length]
+        let episodeIds = Set(window.compactMap(\.episodeId))
+        return episodeIds.count > 1
     }
 
     private func validate(dataset: ManasTrainingDataset) throws {
@@ -266,6 +323,10 @@ public struct ManasTrainingBatchBuilder {
             }
             return drives
         }
+    }
+
+    private func selectedWindowStarts(maxStart: Int) -> [Int] {
+        windowSampler.selectedWindowStarts(maxStart: maxStart)
     }
 
     private func mapReflexTargets(_ corrections: [ManasTrainingReflexCorrection]) -> (clamp: [Float], damping: [Float], delta: [Float]) {

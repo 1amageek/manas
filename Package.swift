@@ -91,7 +91,9 @@ let package = Package(
                 "ManasCore",
                 "ManasRuntime",
                 "ManasMLXModels",
+                "ManasMLXTraining",
                 "ManasMLXRuntime",
+                .product(name: "ManasTrainingData", package: "manas-training-data"),
                 .product(name: "MLX", package: "mlx-swift"),
             ]
         ),

@@ -219,10 +219,12 @@ public enum ImaginationTrainer {
             let output = model.imaginationStep(action: action, state: state)
             state = output.nextState
 
-            rewards.append(output.rewardPrediction ?? MLXArray.zeros([state.fast.dim(0), 1]))
+            rewards.append(
+                normalizeColumn(output.rewardPrediction ?? MLXArray.zeros([state.fast.dim(0), 1]))
+            )
             // continuePrediction is now raw logits; convert to probability for lambda-returns
             let contLogits = output.continuePrediction ?? MLXArray.ones([state.fast.dim(0), 1])
-            continues.append(sigmoid(contLogits))
+            continues.append(normalizeColumn(sigmoid(contLogits)))
 
             // Value at new state (uses full features)
             let newFeatures = model.imaginationFeatures(from: state)
@@ -261,6 +263,14 @@ public enum ImaginationTrainer {
             sum = sum + array.mean()
         }
         return sum / Float(arrays.count)
+    }
+
+    private static func normalizeColumn(_ array: MLXArray) -> MLXArray {
+        let shape = array.shape
+        if shape.count == 3, shape[1] == 1 {
+            return array.squeezed(axis: 1)
+        }
+        return array
     }
 
     private static func freezeWorldModel(_ model: ManasMLXCore) {

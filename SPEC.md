@@ -67,6 +67,26 @@ Optional MLX modules:
 ## MLX Model Reference
 See `MLX_MODEL_SPEC.md` for the MLX Core/Reflex reference architecture and training phases.
 
+## Model Bundle Contract (Normative)
+Manas model delivery is a **model bundle**, not a standalone weight file.
+A bundle MUST contain a `manas-bundle.json` manifest that binds executable
+model components to the runtime contract required to use them safely.
+
+Minimum bundle responsibilities:
+- identify the bundle with `bundleID`, `schemaVersion`, and creation time,
+- bind descriptor identity, configuration identity, observation schema, drive
+  semantics, and optional MotorNerve profile,
+- reference required model components such as `modelConfig` and `coreWeights`,
+- reference optional components such as Reflex weights, world-model weights,
+  normalization stats, safety envelope, lineage, and validation artifacts,
+- validate component paths as safe relative paths,
+- validate required files, byte counts, and component digests when present,
+- preserve multi-rate constraints when core/reflex periods are included.
+
+Kuyu may attach training, regression, and acceptance artifacts to a Manas bundle,
+but those artifacts do not make Kuyu the owner of Manas model internals.
+The executable model contract remains in Manas.
+
 ## Safety & Stability
 - Safety dominates performance (learned safety, no hard filter).
 - Reflex must not be fully blocked by Gating (fast path is ungated).
