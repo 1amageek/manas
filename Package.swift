@@ -37,9 +37,9 @@ let package = Package(
     dependencies: [
         .package(path: "../manas-training-data"),
         .package(path: "../embodiment-contract"),
-        .package(url: "https://github.com/apple/swift-log", from: "1.9.1"),
-        .package(url: "https://github.com/apple/swift-configuration", from: "1.0.2"),
-        .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.29.1"),
+        .package(url: "https://github.com/apple/swift-log", from: "1.13.1"),
+        .package(url: "https://github.com/apple/swift-configuration", from: "1.2.0"),
+        .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.31.3"),
     ],
     targets: [
         .target(
