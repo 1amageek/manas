@@ -5,7 +5,7 @@ public enum ManasModelBundleValidationError: Error, Sendable, Equatable, CustomS
     case unsupportedSchemaVersion(Int)
     case emptyBundleID
     case emptyModelFamily
-    case emptyDescriptorHash
+    case emptyEmbodimentHash
     case emptyConfigHash
     case emptyObservationSchemaID
     case emptyDriveSemanticsID
@@ -30,8 +30,8 @@ public enum ManasModelBundleValidationError: Error, Sendable, Equatable, CustomS
             return "empty-bundle-id"
         case .emptyModelFamily:
             return "empty-model-family"
-        case .emptyDescriptorHash:
-            return "empty-descriptor-hash"
+        case .emptyEmbodimentHash:
+            return "empty-embodiment-hash"
         case .emptyConfigHash:
             return "empty-config-hash"
         case .emptyObservationSchemaID:

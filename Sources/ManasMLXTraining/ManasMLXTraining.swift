@@ -3,25 +3,62 @@ import MLXNN
 import MLXOptimizers
 import ManasMLXModels
 
+/// Stops supervised training once the per-epoch loss stops improving, avoiding the
+/// wasted epochs after convergence. Disabled when left `nil` on the config.
+public struct ManasMLXEarlyStopping: Sendable, Equatable {
+    /// Minimum loss improvement (over the best epoch so far) that counts as progress.
+    public let minDelta: Float
+    /// Number of consecutive non-improving epochs tolerated before stopping.
+    public let patience: Int
+
+    public init(minDelta: Float, patience: Int) {
+        self.minDelta = max(0, minDelta)
+        self.patience = max(1, patience)
+    }
+}
+
 public struct ManasMLXTrainingConfig: Sendable, Equatable {
     public let epochs: Int
     public let learningRate: Float
     public let maxGradNorm: Float?
     public let driveLossWeight: Float
     public let auxLossWeight: Float
+    public let earlyStopping: ManasMLXEarlyStopping?
 
     public init(
         epochs: Int,
         learningRate: Float,
         maxGradNorm: Float? = 1.0,
         driveLossWeight: Float = 1.0,
-        auxLossWeight: Float = 0.1
+        auxLossWeight: Float = 0.1,
+        earlyStopping: ManasMLXEarlyStopping? = nil
     ) {
         self.epochs = epochs
         self.learningRate = learningRate
         self.maxGradNorm = maxGradNorm
         self.driveLossWeight = driveLossWeight
         self.auxLossWeight = auxLossWeight
+        self.earlyStopping = earlyStopping
+    }
+}
+
+/// Tracks per-epoch loss improvement for early stopping. Returns `true` from `step`
+/// when training should stop.
+struct EarlyStopTracker {
+    let config: ManasMLXEarlyStopping
+    private var bestLoss = Float.greatestFiniteMagnitude
+    private var epochsSinceImprovement = 0
+
+    init(config: ManasMLXEarlyStopping) { self.config = config }
+
+    mutating func shouldStop(after epochLoss: Float) -> Bool {
+        if bestLoss - epochLoss > config.minDelta {
+            bestLoss = epochLoss
+            epochsSinceImprovement = 0
+            return false
+        }
+        epochsSinceImprovement += 1
+        return epochsSinceImprovement >= config.patience
     }
 }
 
@@ -141,6 +178,7 @@ public enum ManasMLXTrainer {
         }
 
         var epochLosses: [Float] = []
+        var earlyStop = config.earlyStopping.map(EarlyStopTracker.init(config:))
         model.train(true)
 
         for epochIndex in 0..<config.epochs {
@@ -157,8 +195,10 @@ public enum ManasMLXTrainer {
                 onProgress?(epochIndex + 1, index + 1, batchCount, loss)
                 await Task.yield()
             }
-            epochLosses.append(totalLoss / Float(batchCount))
+            let epochLoss = totalLoss / Float(batchCount)
+            epochLosses.append(epochLoss)
             await Task.yield()
+            if earlyStop?.shouldStop(after: epochLoss) == true { break }
         }
 
         model.train(false)
@@ -233,6 +273,7 @@ public enum ManasMLXTrainer {
         }
 
         var epochLosses: [Float] = []
+        var earlyStop = config.earlyStopping.map(EarlyStopTracker.init(config:))
         model.train(true)
 
         for epochIndex in 0..<config.epochs {
@@ -252,8 +293,10 @@ public enum ManasMLXTrainer {
                 onProgress?(epochIndex + 1, index + 1, batchCount, loss)
                 await Task.yield()
             }
-            epochLosses.append(totalLoss / Float(batchCount))
+            let epochLoss = totalLoss / Float(batchCount)
+            epochLosses.append(epochLoss)
             await Task.yield()
+            if earlyStop?.shouldStop(after: epochLoss) == true { break }
         }
 
         model.train(false)

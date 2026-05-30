@@ -36,13 +36,17 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../manas-training-data"),
+        .package(path: "../embodiment-contract"),
         .package(url: "https://github.com/apple/swift-log", from: "1.9.1"),
         .package(url: "https://github.com/apple/swift-configuration", from: "1.0.2"),
         .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.29.1"),
     ],
     targets: [
         .target(
-            name: "ManasCore"
+            name: "ManasCore",
+            dependencies: [
+                .product(name: "EmbodimentContract", package: "embodiment-contract"),
+            ]
         ),
         .target(
             name: "ManasRuntime",

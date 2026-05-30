@@ -1,6 +1,6 @@
 public enum ManasModelBundleComponentRole: String, Codable, Sendable, Equatable, CaseIterable {
     case modelConfig
-    case descriptor
+    case embodimentContract
     case coreWeights
     case reflexWeights
     case worldModelWeights
@@ -16,7 +16,7 @@ public enum ManasModelBundleComponentRole: String, Codable, Sendable, Equatable,
         switch self {
         case .trainingMetrics, .validationArtifact:
             return true
-        case .modelConfig, .descriptor, .coreWeights, .reflexWeights, .worldModelWeights,
+        case .modelConfig, .embodimentContract, .coreWeights, .reflexWeights, .worldModelWeights,
              .normalizationStats, .safetyEnvelope, .motorBounds, .trainingManifest, .lineage:
             return false
         }

@@ -80,7 +80,9 @@ Examples:
 - contact_force_left, contact_force_right (touch)
 - battery_voltage, motor_temperature (system state)
 
-Derived from RobotDescriptor `signals.sensor[]`.
+Defined by `EmbodimentContract.signals.sensor[]` and
+`EmbodimentContract.sensors[].channels`. Physical body parameters that affect
+plant dynamics remain in Kuyu's `KuyuBodyModel`.
 
 ### 2.3 Descending Channels (Upper Layer → Manas)
 
@@ -116,7 +118,8 @@ commands = [c_0, c_1, ..., c_{M-1}]   normalized actuator activations
 
 Each channel: `(value, actuator_type_embedding)`
 
-The output count M is determined by RobotDescriptor `signals.actuator[]`.
+The output count M is determined by `EmbodimentContract.signals.actuator[]` and
+`EmbodimentContract.actuators[].channels`.
 The shared_actuator_decoder produces one scalar per actuator channel.
 
 This is the existing DriveIntent → MotorNerve → ActuatorValue pipeline,
@@ -138,9 +141,9 @@ generalized to variable actuator count.
 
 ```
 Inputs:
-  ascending[N]   (sensor channels, from RobotDescriptor)
+  ascending[N]   (sensor channels, from EmbodimentContract)
   descending[K]  (intention channels, from upper layer — may be empty)
-  morphology[D]  (from RobotDescriptor, precomputed)
+  morphology[D]  (control-facing morphology summary derived outside Manas)
 
 ┌─────────────────────────────────────────────────────┐
 │ Channel Tokenizer (L1-L3 equivalent)                │
@@ -266,8 +269,9 @@ These embeddings are part of the base model (shared across morphologies).
 New channel types can be added by extending the embedding table —
 no architectural change required.
 
-Derived from RobotDescriptor `signals.sensor[].type`, `signals.actuator[].type`,
-and a new `signals.descending[].type` for upper-layer channels.
+Defined by `EmbodimentContract.signals.sensor[]`,
+`EmbodimentContract.signals.actuator[]`, and
+`EmbodimentContract.signals.descending[]` for upper-layer channels.
 
 ### 3.6 Parameter Budget
 
@@ -344,8 +348,8 @@ Definition  Distill    (Sim)     (Sim+Real)
 ### Phase 0: Interface and Morphology Definition
 
 - Define ascending/descending/output channel types and type_embeddings
-- Extend RobotDescriptor with `signals.descending[]` for upper-layer channels
-- Configure RobotDescriptor for target morphology
+- Define `EmbodimentContract.signals.descending[]` for upper-layer channels
+- Configure `EmbodimentContract` for the target control boundary
 - Implement shared_encoder and shared_actuator_decoder
 - Implement analytical Reflex (PD damping)
 
@@ -552,21 +556,22 @@ Step 6: LoRA as morphology adapter
 
 Each step is independently testable. Existing drone tests pass at every step.
 
-### RobotDescriptor Integration
+### EmbodimentContract Integration
 
-RobotDescriptor already defines:
-- `signals.sensor[].type` → ascending type embeddings
-- `signals.actuator[].type` → actuator type embeddings
+EmbodimentContract defines:
+- `signals.sensor[]` → ascending type embeddings
+- `signals.actuator[]` → actuator type embeddings
+- `signals.descending[]` → descending type embeddings
 - `sensors[].channels` → ascending channel count N
 - `actuators[].channels` → output channel count M
 - `motorNerve.stages` → allocation mapping
 
-New addition needed:
-- `signals.descending[]` → descending type embeddings and channel definitions
-- `control.descendingChannels` → descending channel count K
+KuyuBodyModel defines the physical body and KuyuWorldModel defines the simulated
+world. Manas does not infer inertia, gravity, contact, or geometry from the
+control contract.
 
-The gap: MLX models currently ignore RobotDescriptor and use hardcoded dimensions.
-Fix: ManasMLXCoreConfig is generated FROM RobotDescriptor at initialization.
+The gap to avoid: MLX models must not hardcode dimensions. Fix:
+`ManasMLXCoreConfig` is generated from `EmbodimentContract` at initialization.
 
 ---
 
@@ -582,7 +587,7 @@ Fix: ManasMLXCoreConfig is generated FROM RobotDescriptor at initialization.
 - [4] Learning to Reason in 13 Parameters (2602.04118): TinyLoRA, RL >> SFT
       in low-parameter regime (100-1000×), SVD-based weight projection
 - [5] Manas SPEC.md: Layered control protocol (L0-L6)
-- [6] RobotDescriptor Specification: Morphology-agnostic robot definition
+- [6] EmbodimentContract Specification: Manas/Kuyu control boundary
 - [7] Signal Contract: Channel-based signal semantics
 
 ---

@@ -1,5 +1,5 @@
 public struct ManasModelBundleRuntimeContract: Codable, Sendable, Equatable {
-    public let descriptorHash: String
+    public let embodimentHash: String
     public let configHash: String
     public let observationSchemaID: String
     public let driveSemanticsID: String
@@ -8,7 +8,7 @@ public struct ManasModelBundleRuntimeContract: Codable, Sendable, Equatable {
     public let reflexPeriodSeconds: Double?
 
     public init(
-        descriptorHash: String,
+        embodimentHash: String,
         configHash: String,
         observationSchemaID: String,
         driveSemanticsID: String,
@@ -16,7 +16,7 @@ public struct ManasModelBundleRuntimeContract: Codable, Sendable, Equatable {
         corePeriodSeconds: Double? = nil,
         reflexPeriodSeconds: Double? = nil
     ) {
-        self.descriptorHash = descriptorHash
+        self.embodimentHash = embodimentHash
         self.configHash = configHash
         self.observationSchemaID = observationSchemaID
         self.driveSemanticsID = driveSemanticsID

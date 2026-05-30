@@ -98,8 +98,9 @@ The executable model contract remains in Manas.
 ## Robotics + NN Integration Mechanisms (Normative)
 The following mechanisms are required to realize Manas as a robotics-native
 neural control protocol:
-- **Descriptor-driven semantics**: channel types and command semantics MUST be
-  resolved from RobotDescriptor (ascending/descending/drive/actuator catalogs).
+- **Embodiment-contract-driven semantics**: channel types and command semantics
+  MUST be resolved from `EmbodimentContract` catalogs. Manas consumes the
+  control boundary only; body/world physics remain Kuyu-owned authority.
 - **Timestamp-aware ingestion**: NerveBundle MUST handle asynchronous samples,
   delay penalties, and missing-sample robustness without NaN/Inf propagation.
 - **Guaranteed multi-rate execution**: Core/Reflex cadence separation and

@@ -75,7 +75,7 @@ import Testing
         bundleID: "bundle",
         createdAt: Date(timeIntervalSince1970: 0),
         runtimeContract: .init(
-            descriptorHash: "descriptor",
+            embodimentHash: "embodiment",
             configHash: "config",
             observationSchemaID: "lift-8ch",
             driveSemanticsID: "quad-drive",
@@ -123,7 +123,7 @@ private func makeManifest(components: [ManasModelBundleComponent]) -> ManasModel
         bundleID: "bundle",
         createdAt: Date(timeIntervalSince1970: 0),
         runtimeContract: .init(
-            descriptorHash: "descriptor",
+            embodimentHash: "embodiment",
             configHash: "config",
             observationSchemaID: "lift-8ch",
             driveSemanticsID: "quad-drive",

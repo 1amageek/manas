@@ -39,8 +39,8 @@ public struct ManasModelBundleValidator: Sendable {
     }
 
     private func validate(runtimeContract: ManasModelBundleRuntimeContract) throws {
-        guard !runtimeContract.descriptorHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw ManasModelBundleValidationError.emptyDescriptorHash
+        guard !runtimeContract.embodimentHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ManasModelBundleValidationError.emptyEmbodimentHash
         }
         guard !runtimeContract.configHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ManasModelBundleValidationError.emptyConfigHash

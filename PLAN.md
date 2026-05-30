@@ -73,8 +73,8 @@
 6. **Core bounded + hold**: 出力境界と未更新時の保持。
 7. **MotorNerve 写像**: primitive 活性を actuator 値へ連続写像。
 8. **Multi‑rate 実装**: Reflex/Core の周期差を強制。
-9. **Descriptor 統合**: 型・意味論を RobotDescriptor 起点で解決。
+9. **EmbodimentContract 統合**: 型・意味論を制御境界の contract 起点で解決。
 10. **Telemetry 活用**: 制御系が必要な実機状態を入力として利用可能。
-11. **再現性固定**: seed/hash/model/descriptor が常に実験成果物へ紐づく。
+11. **再現性固定**: seed/hash/model/embodiment が常に実験成果物へ紐づく。
 12. **双方向I/F 完了**: descending bias と upward summary の契約項目を満たす。
 13. **安全優先 arbitration**: 競合時に reflex 優先が常に成立する。
