@@ -36,6 +36,9 @@ public struct ManasTrainingWindowSampler: Sendable, Equatable {
         guard let maxBatches, maxBatches < windowCount else {
             return Array(0...maxStart)
         }
+        guard maxBatches > 0 else {
+            return []
+        }
         guard maxBatches > 1 else {
             return [maxStart / 2]
         }
@@ -62,9 +65,29 @@ public struct ManasTrainingWindowSampler: Sendable, Equatable {
 
         return selected.sorted()
     }
+
+    public func selectedWindowStartBatches(maxStart: Int, miniBatchSize: Int) -> [[Int]] {
+        let starts = selectedWindowStarts(maxStart: maxStart)
+        let resolvedMiniBatchSize = max(1, miniBatchSize)
+        var chunks: [[Int]] = []
+        chunks.reserveCapacity((starts.count + resolvedMiniBatchSize - 1) / resolvedMiniBatchSize)
+        var index = 0
+        while index < starts.count {
+            let end = min(index + resolvedMiniBatchSize, starts.count)
+            chunks.append(Array(starts[index..<end]))
+            index = end
+        }
+        return chunks
+    }
 }
 
 public struct ManasTrainingBatchBuilder {
+    public static let defaultMiniBatchSize = 32
+
+    public static func normalizedMiniBatchSize(_ miniBatchSize: Int?) -> Int {
+        max(1, miniBatchSize ?? defaultMiniBatchSize)
+    }
+
     public enum ValidationError: Error, Equatable {
         case invalidSequenceLength
         case driveCountMismatch(expected: Int, actual: Int)
@@ -73,12 +96,19 @@ public struct ManasTrainingBatchBuilder {
     public let sequenceLength: Int
     public let driveCount: Int
     public let maxBatches: Int?
+    public let miniBatchSize: Int
     private let windowSampler: ManasTrainingWindowSampler
 
-    public init(sequenceLength: Int, driveCount: Int, maxBatches: Int? = nil) {
+    public init(
+        sequenceLength: Int,
+        driveCount: Int,
+        maxBatches: Int? = nil,
+        miniBatchSize: Int = ManasTrainingBatchBuilder.defaultMiniBatchSize
+    ) {
         self.sequenceLength = sequenceLength
         self.driveCount = driveCount
         self.maxBatches = maxBatches
+        self.miniBatchSize = Self.normalizedMiniBatchSize(miniBatchSize)
         self.windowSampler = ManasTrainingWindowSampler(maxBatches: maxBatches)
     }
 
@@ -93,25 +123,26 @@ public struct ManasTrainingBatchBuilder {
         guard vectors.count == targets.count else { return [] }
         guard vectors.count >= sequenceLength else { return [] }
 
-        var batches: [ManasMLXSequenceBatch] = []
         let trunkSize = vectors[0].count
+        let starts = selectedWindowStarts(maxStart: vectors.count - sequenceLength)
+        var batches: [ManasMLXSequenceBatch] = []
+        batches.reserveCapacity((starts.count + miniBatchSize - 1) / miniBatchSize)
 
-        for start in selectedWindowStarts(maxStart: vectors.count - sequenceLength) {
-            let trunkWindow = Array(vectors[start..<start + sequenceLength])
-            let targetWindow = Array(targets[start..<start + sequenceLength])
+        for chunk in windowStartChunks(starts) {
+            var trunkValues: [Float] = []
+            var targetValues: [Float] = []
+            trunkValues.reserveCapacity(chunk.count * sequenceLength * trunkSize)
+            targetValues.reserveCapacity(chunk.count * sequenceLength * driveCount)
 
-            let trunksArray = MLXArray(
-                converting: trunkWindow.flatMap { $0 }.map(Double.init),
-                [sequenceLength, trunkSize]
-            )
-            let targetArray = MLXArray(
-                converting: targetWindow.flatMap { $0 }.map(Double.init),
-                [sequenceLength, driveCount]
-            )
-            batches.append(ManasMLXSequenceBatch(trunks: trunksArray, targetDrives: targetArray))
-            if let maxBatches, batches.count >= maxBatches {
-                break
+            for start in chunk {
+                appendWindowValues(from: vectors, start: start, length: sequenceLength, to: &trunkValues)
+                appendWindowValues(from: targets, start: start, length: sequenceLength, to: &targetValues)
             }
+
+            batches.append(ManasMLXSequenceBatch(
+                trunks: MLXArray(trunkValues, [chunk.count, sequenceLength, trunkSize]),
+                targetDrives: MLXArray(targetValues, [chunk.count, sequenceLength, driveCount])
+            ))
         }
 
         return batches
@@ -128,31 +159,30 @@ public struct ManasTrainingBatchBuilder {
         guard vectors.count == targets.count else { return [] }
         guard vectors.count > sequenceLength else { return [] }
 
-        var batches: [ManasMLXAuxSequenceBatch] = []
         let trunkSize = vectors[0].count
+        let starts = selectedWindowStarts(maxStart: vectors.count - sequenceLength - 1)
+        var batches: [ManasMLXAuxSequenceBatch] = []
+        batches.reserveCapacity((starts.count + miniBatchSize - 1) / miniBatchSize)
 
-        for start in selectedWindowStarts(maxStart: vectors.count - sequenceLength - 1) {
-            let trunkWindow = Array(vectors[start..<start + sequenceLength])
-            let targetWindow = Array(targets[start..<start + sequenceLength])
-            let auxTarget = vectors[start + sequenceLength]
+        for chunk in windowStartChunks(starts) {
+            var trunkValues: [Float] = []
+            var targetValues: [Float] = []
+            var auxValues: [Float] = []
+            trunkValues.reserveCapacity(chunk.count * sequenceLength * trunkSize)
+            targetValues.reserveCapacity(chunk.count * sequenceLength * driveCount)
+            auxValues.reserveCapacity(chunk.count * trunkSize)
 
-            let trunksArray = MLXArray(
-                converting: trunkWindow.flatMap { $0 }.map(Double.init),
-                [sequenceLength, trunkSize]
-            )
-            let targetArray = MLXArray(
-                converting: targetWindow.flatMap { $0 }.map(Double.init),
-                [sequenceLength, driveCount]
-            )
-            let auxArray = MLXArray(
-                converting: auxTarget.map(Double.init),
-                [1, trunkSize]
-            )
-
-            batches.append(ManasMLXAuxSequenceBatch(trunks: trunksArray, targetDrives: targetArray, targetAux: auxArray))
-            if let maxBatches, batches.count >= maxBatches {
-                break
+            for start in chunk {
+                appendWindowValues(from: vectors, start: start, length: sequenceLength, to: &trunkValues)
+                appendWindowValues(from: targets, start: start, length: sequenceLength, to: &targetValues)
+                auxValues.append(contentsOf: vectors[start + sequenceLength])
             }
+
+            batches.append(ManasMLXAuxSequenceBatch(
+                trunks: MLXArray(trunkValues, [chunk.count, sequenceLength, trunkSize]),
+                targetDrives: MLXArray(targetValues, [chunk.count, sequenceLength, driveCount]),
+                targetAux: MLXArray(auxValues, [chunk.count, 1, trunkSize])
+            ))
         }
 
         return batches
@@ -163,6 +193,7 @@ public struct ManasTrainingBatchBuilder {
         pipeline: inout ManasTrunkPipeline
     ) throws -> [ManasMLXReflexBatch] {
         try validate(dataset: dataset)
+        if let maxBatches, maxBatches <= 0 { return [] }
         let records = dataset.records
         var batches: [ManasMLXReflexBatch] = []
 
@@ -202,45 +233,42 @@ public struct ManasTrainingBatchBuilder {
         guard vectors.count == targets.count else { return [] }
         guard vectors.count >= sequenceLength else { return [] }
 
-        var batches: [ManasMLXWorldModelBatch] = []
         let trunkSize = vectors[0].count
-
-        for start in selectedWindowStarts(maxStart: vectors.count - sequenceLength) {
-            guard !crossesEpisodeBoundary(records: dataset.records, start: start, length: sequenceLength) else {
-                continue
+        let starts = selectedWindowStarts(maxStart: vectors.count - sequenceLength)
+            .filter { start in
+                !crossesEpisodeBoundary(records: dataset.records, start: start, length: sequenceLength)
             }
-            let trunkWindow = Array(vectors[start..<start + sequenceLength])
-            let targetWindow = Array(targets[start..<start + sequenceLength])
-            let rewardWindow = Array(rewards[start..<start + sequenceLength])
+        var batches: [ManasMLXWorldModelBatch] = []
+        batches.reserveCapacity((starts.count + miniBatchSize - 1) / miniBatchSize)
 
-            let trunksArray = MLXArray(
-                converting: trunkWindow.flatMap { $0 }.map(Double.init),
-                [sequenceLength, trunkSize]
-            )
-            let targetArray = MLXArray(
-                converting: targetWindow.flatMap { $0 }.map(Double.init),
-                [sequenceLength, driveCount]
-            )
-            let rewardArray = MLXArray(
-                converting: rewardWindow.map(Double.init),
-                [sequenceLength, 1]
-            )
+        for chunk in windowStartChunks(starts) {
+            var trunkValues: [Float] = []
+            var targetValues: [Float] = []
+            var rewardValues: [Float] = []
+            var continueValues: [Float] = []
+            trunkValues.reserveCapacity(chunk.count * sequenceLength * trunkSize)
+            targetValues.reserveCapacity(chunk.count * sequenceLength * driveCount)
+            rewardValues.reserveCapacity(chunk.count * sequenceLength)
+            continueValues.reserveCapacity(chunk.count * sequenceLength)
 
-            var continueValues = Array(repeating: Float(1.0), count: sequenceLength)
-            let terminalRecord = dataset.records[start + sequenceLength - 1]
-            if terminalRecord.done == true || terminalRecord.truncated == true || start + sequenceLength == vectors.count {
-                continueValues[sequenceLength - 1] = 0.0
+            for start in chunk {
+                appendWindowValues(from: vectors, start: start, length: sequenceLength, to: &trunkValues)
+                appendWindowValues(from: targets, start: start, length: sequenceLength, to: &targetValues)
+                appendScalarWindowValues(from: rewards, start: start, length: sequenceLength, to: &rewardValues)
+
+                var windowContinueValues = Array(repeating: Float(1.0), count: sequenceLength)
+                let terminalRecord = dataset.records[start + sequenceLength - 1]
+                if terminalRecord.done == true || terminalRecord.truncated == true || start + sequenceLength == vectors.count {
+                    windowContinueValues[sequenceLength - 1] = 0.0
+                }
+                continueValues.append(contentsOf: windowContinueValues)
             }
-            let continueArray = MLXArray(
-                converting: continueValues.map(Double.init),
-                [sequenceLength, 1]
-            )
 
             batches.append(ManasMLXWorldModelBatch(
-                trunks: trunksArray,
-                targetDrives: targetArray,
-                rewards: rewardArray,
-                continues: continueArray
+                trunks: MLXArray(trunkValues, [chunk.count, sequenceLength, trunkSize]),
+                targetDrives: MLXArray(targetValues, [chunk.count, sequenceLength, driveCount]),
+                rewards: MLXArray(rewardValues, [chunk.count, sequenceLength, 1]),
+                continues: MLXArray(continueValues, [chunk.count, sequenceLength, 1])
             ))
         }
 
@@ -327,6 +355,40 @@ public struct ManasTrainingBatchBuilder {
 
     private func selectedWindowStarts(maxStart: Int) -> [Int] {
         windowSampler.selectedWindowStarts(maxStart: maxStart)
+    }
+
+    private func windowStartChunks(_ starts: [Int]) -> [[Int]] {
+        var chunks: [[Int]] = []
+        chunks.reserveCapacity((starts.count + miniBatchSize - 1) / miniBatchSize)
+        var index = 0
+        while index < starts.count {
+            let end = min(index + miniBatchSize, starts.count)
+            chunks.append(Array(starts[index..<end]))
+            index = end
+        }
+        return chunks
+    }
+
+    private func appendWindowValues(
+        from rows: [[Float]],
+        start: Int,
+        length: Int,
+        to values: inout [Float]
+    ) {
+        for index in start..<start + length {
+            values.append(contentsOf: rows[index])
+        }
+    }
+
+    private func appendScalarWindowValues(
+        from rows: [Float],
+        start: Int,
+        length: Int,
+        to values: inout [Float]
+    ) {
+        for index in start..<start + length {
+            values.append(rows[index])
+        }
     }
 
     private func mapReflexTargets(_ corrections: [ManasTrainingReflexCorrection]) -> (clamp: [Float], damping: [Float], delta: [Float]) {

@@ -1,3 +1,4 @@
+import Foundation
 import MLX
 import MLXNN
 import MLXOptimizers
@@ -16,45 +17,48 @@ public enum WorldModelTrainer {
         epochs: Int
     ) -> [Float] {
         let optimizer = Adam(learningRate: learningRate)
+        let lossAndGrad = valueAndGrad(model: model) { model, trunks, targets in
+            computeLoss(
+                model: model,
+                trunks: trunks,
+                targets: targets,
+                lossConfig: lossConfig,
+                descending: nil,
+                morphology: nil
+            )
+        }
 
         var epochLosses: [Float] = []
         model.train(true)
 
         for _ in 0..<epochs {
             var totalLoss: Float = 0
+            var totalStepCount = 0
             for batch in batches {
-                let desc = batch.descending
-                let morph = batch.morphology
-                let lg = valueAndGrad(model: model) { model, trunks, targets in
-                    let rssmOutput = model.forwardRSSM(
-                        trunks: trunks, descending: desc, morphology: morph
+                let (loss, stepCount): (Float, Int) = autoreleasepool {
+                    let packedTargets = concatenated(
+                        [batch.targetDrives, batch.rewards, batch.continues],
+                        axis: -1
                     )
-                    let driveCount = model.config.driveCount
-                    let driveTargets = targets[.ellipsis, 0..<driveCount]
-                    let rewards = targets[.ellipsis, driveCount..<(driveCount + 1)]
-                    let continues = targets[.ellipsis, (driveCount + 1)..<(driveCount + 2)]
-
-                    let b = ManasMLXWorldModelBatch(
-                        trunks: trunks,
-                        targetDrives: driveTargets,
-                        rewards: rewards,
-                        continues: continues
+                    let normalizedTargets = ensureBatchTargets(packedTargets)
+                    let (lossValue, grads) = gradient(
+                        model: model,
+                        trunks: batch.trunks,
+                        targets: normalizedTargets,
+                        lossAndGrad: lossAndGrad,
+                        lossConfig: lossConfig,
+                        descending: batch.descending,
+                        morphology: batch.morphology
                     )
-                    return WorldModelLoss.compute(rssmOutput: rssmOutput, batch: b, config: lossConfig)
+                    let clipped = clipIfNeeded(grads, maxNorm: maxGradNorm)
+                    optimizer.update(model: model, gradients: clipped)
+                    eval(model, optimizer)
+                    return (lossValue.item(Float.self), batchStepCount(normalizedTargets))
                 }
-                // Pack targets for valueAndGrad closure
-                let packedTargets = concatenated(
-                    [batch.targetDrives, batch.rewards, batch.continues],
-                    axis: -1
-                )
-                let normalizedTargets = ensureBatchTargets(packedTargets)
-                let (lossValue, grads) = lg(model, batch.trunks, normalizedTargets)
-                let clipped = clipIfNeeded(grads, maxNorm: maxGradNorm)
-                optimizer.update(model: model, gradients: clipped)
-                eval(model, optimizer)
-                totalLoss += lossValue.item(Float.self)
+                totalLoss += loss * Float(stepCount)
+                totalStepCount += stepCount
             }
-            epochLosses.append(totalLoss / Float(max(batches.count, 1)))
+            epochLosses.append(totalLoss / Float(max(totalStepCount, 1)))
         }
 
         model.train(false)
@@ -72,6 +76,16 @@ public enum WorldModelTrainer {
         onProgress: (@Sendable (_ epoch: Int, _ batch: Int, _ batchCount: Int, _ loss: Float) -> Void)? = nil
     ) async -> [Float] {
         let optimizer = Adam(learningRate: learningRate)
+        let lossAndGrad = valueAndGrad(model: model) { model, trunks, targets in
+            computeLoss(
+                model: model,
+                trunks: trunks,
+                targets: targets,
+                lossConfig: lossConfig,
+                descending: nil,
+                morphology: nil
+            )
+        }
 
         var epochLosses: [Float] = []
         model.train(true)
@@ -79,41 +93,34 @@ public enum WorldModelTrainer {
         for epochIndex in 0..<epochs {
             var totalLoss: Float = 0
             let batchCount = max(batches.count, 1)
+            var totalStepCount = 0
             for (index, batch) in batches.enumerated() {
-                let desc = batch.descending
-                let morph = batch.morphology
-                let lg = valueAndGrad(model: model) { model, trunks, targets in
-                    let rssmOutput = model.forwardRSSM(
-                        trunks: trunks, descending: desc, morphology: morph
+                let (loss, stepCount): (Float, Int) = autoreleasepool {
+                    let packedTargets = concatenated(
+                        [batch.targetDrives, batch.rewards, batch.continues],
+                        axis: -1
                     )
-                    let driveCount = model.config.driveCount
-                    let driveTargets = targets[.ellipsis, 0..<driveCount]
-                    let rewards = targets[.ellipsis, driveCount..<(driveCount + 1)]
-                    let continues = targets[.ellipsis, (driveCount + 1)..<(driveCount + 2)]
-
-                    let b = ManasMLXWorldModelBatch(
-                        trunks: trunks,
-                        targetDrives: driveTargets,
-                        rewards: rewards,
-                        continues: continues
+                    let normalizedTargets = ensureBatchTargets(packedTargets)
+                    let (lossValue, grads) = gradient(
+                        model: model,
+                        trunks: batch.trunks,
+                        targets: normalizedTargets,
+                        lossAndGrad: lossAndGrad,
+                        lossConfig: lossConfig,
+                        descending: batch.descending,
+                        morphology: batch.morphology
                     )
-                    return WorldModelLoss.compute(rssmOutput: rssmOutput, batch: b, config: lossConfig)
+                    let clipped = clipIfNeeded(grads, maxNorm: maxGradNorm)
+                    optimizer.update(model: model, gradients: clipped)
+                    eval(model, optimizer)
+                    return (lossValue.item(Float.self), batchStepCount(normalizedTargets))
                 }
-                let packedTargets = concatenated(
-                    [batch.targetDrives, batch.rewards, batch.continues],
-                    axis: -1
-                )
-                let normalizedTargets = ensureBatchTargets(packedTargets)
-                let (lossValue, grads) = lg(model, batch.trunks, normalizedTargets)
-                let clipped = clipIfNeeded(grads, maxNorm: maxGradNorm)
-                optimizer.update(model: model, gradients: clipped)
-                eval(model, optimizer)
-                let loss = lossValue.item(Float.self)
-                totalLoss += loss
+                totalLoss += loss * Float(stepCount)
+                totalStepCount += stepCount
                 onProgress?(epochIndex + 1, index + 1, batchCount, loss)
                 await Task.yield()
             }
-            epochLosses.append(totalLoss / Float(batchCount))
+            epochLosses.append(totalLoss / Float(max(totalStepCount, 1)))
             await Task.yield()
         }
 
@@ -126,9 +133,70 @@ public enum WorldModelTrainer {
         return clipGradNorm(gradients: grads, maxNorm: maxNorm).0
     }
 
+    private static func gradient(
+        model: ManasMLXCore,
+        trunks: MLXArray,
+        targets: MLXArray,
+        lossAndGrad: (ManasMLXCore, MLXArray, MLXArray) -> (MLXArray, ModuleParameters),
+        lossConfig: WorldModelLoss.Config,
+        descending: MLXArray?,
+        morphology: MLXArray?
+    ) -> (MLXArray, ModuleParameters) {
+        guard descending != nil || morphology != nil else {
+            return lossAndGrad(model, trunks, targets)
+        }
+
+        let contextualLossAndGrad = valueAndGrad(model: model) { model, trunks, targets in
+            computeLoss(
+                model: model,
+                trunks: trunks,
+                targets: targets,
+                lossConfig: lossConfig,
+                descending: descending,
+                morphology: morphology
+            )
+        }
+        return contextualLossAndGrad(model, trunks, targets)
+    }
+
+    private static func computeLoss(
+        model: ManasMLXCore,
+        trunks: MLXArray,
+        targets: MLXArray,
+        lossConfig: WorldModelLoss.Config,
+        descending: MLXArray?,
+        morphology: MLXArray?
+    ) -> MLXArray {
+        let rssmOutput = model.forwardRSSM(
+            trunks: trunks,
+            descending: descending,
+            morphology: morphology
+        )
+        let driveCount = model.config.driveCount
+        let driveTargets = targets[.ellipsis, 0..<driveCount]
+        let rewards = targets[.ellipsis, driveCount..<(driveCount + 1)]
+        let continues = targets[.ellipsis, (driveCount + 1)..<(driveCount + 2)]
+
+        let batch = ManasMLXWorldModelBatch(
+            trunks: trunks,
+            targetDrives: driveTargets,
+            rewards: rewards,
+            continues: continues
+        )
+        return WorldModelLoss.compute(rssmOutput: rssmOutput, batch: batch, config: lossConfig)
+    }
+
     private static func ensureBatchTargets(_ targets: MLXArray) -> MLXArray {
         let shape = targets.shape
         guard shape.count == 2 else { return targets }
         return targets.reshaped([1, shape[0], shape[1]])
+    }
+
+    private static func batchStepCount(_ targets: MLXArray) -> Int {
+        let shape = targets.shape
+        guard shape.count >= 3 else {
+            return shape.first ?? 1
+        }
+        return max(1, shape[0] * shape[1])
     }
 }

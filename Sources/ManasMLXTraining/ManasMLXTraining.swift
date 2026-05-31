@@ -1,3 +1,4 @@
+import Foundation
 import MLX
 import MLXNN
 import MLXOptimizers
@@ -148,15 +149,20 @@ public enum ManasMLXTrainer {
 
         for _ in 0..<config.epochs {
             var totalLoss: Float = 0
+            var totalWindowCount = 0
             for batch in batches {
-                let targets = ensureBatchTargets(batch.targetDrives)
-                let (lossValue, grads) = lg(model, batch.trunks, targets)
-                let clipped = clipIfNeeded(grads, maxNorm: config.maxGradNorm)
-                optimizer.update(model: model, gradients: clipped)
-                eval(model, optimizer)
-                totalLoss += lossValue.item(Float.self)
+                let (loss, windowCount): (Float, Int) = autoreleasepool {
+                    let targets = ensureBatchTargets(batch.targetDrives)
+                    let (lossValue, grads) = lg(model, batch.trunks, targets)
+                    let clipped = clipIfNeeded(grads, maxNorm: config.maxGradNorm)
+                    optimizer.update(model: model, gradients: clipped)
+                    eval(model, optimizer)
+                    return (lossValue.item(Float.self), batchWindowCount(targets))
+                }
+                totalLoss += loss * Float(windowCount)
+                totalWindowCount += windowCount
             }
-            epochLosses.append(totalLoss / Float(max(batches.count, 1)))
+            epochLosses.append(totalLoss / Float(max(totalWindowCount, 1)))
         }
 
         model.train(false)
@@ -184,18 +190,22 @@ public enum ManasMLXTrainer {
         for epochIndex in 0..<config.epochs {
             var totalLoss: Float = 0
             let batchCount = max(batches.count, 1)
+            var totalWindowCount = 0
             for (index, batch) in batches.enumerated() {
-                let targets = ensureBatchTargets(batch.targetDrives)
-                let (lossValue, grads) = lg(model, batch.trunks, targets)
-                let clipped = clipIfNeeded(grads, maxNorm: config.maxGradNorm)
-                optimizer.update(model: model, gradients: clipped)
-                eval(model, optimizer)
-                let loss = lossValue.item(Float.self)
-                totalLoss += loss
+                let (loss, windowCount): (Float, Int) = autoreleasepool {
+                    let targets = ensureBatchTargets(batch.targetDrives)
+                    let (lossValue, grads) = lg(model, batch.trunks, targets)
+                    let clipped = clipIfNeeded(grads, maxNorm: config.maxGradNorm)
+                    optimizer.update(model: model, gradients: clipped)
+                    eval(model, optimizer)
+                    return (lossValue.item(Float.self), batchWindowCount(targets))
+                }
+                totalLoss += loss * Float(windowCount)
+                totalWindowCount += windowCount
                 onProgress?(epochIndex + 1, index + 1, batchCount, loss)
                 await Task.yield()
             }
-            let epochLoss = totalLoss / Float(batchCount)
+            let epochLoss = totalLoss / Float(max(totalWindowCount, 1))
             epochLosses.append(epochLoss)
             await Task.yield()
             if earlyStop?.shouldStop(after: epochLoss) == true { break }
@@ -231,18 +241,23 @@ public enum ManasMLXTrainer {
 
         for _ in 0..<config.epochs {
             var totalLoss: Float = 0
+            var totalWindowCount = 0
             for batch in batches {
-                let combinedTargets = makeAuxTargets(
-                    driveTargets: batch.targetDrives,
-                    auxTargets: batch.targetAux
-                )
-                let (lossValue, grads) = lg(model, batch.trunks, combinedTargets)
-                let clipped = clipIfNeeded(grads, maxNorm: config.maxGradNorm)
-                optimizer.update(model: model, gradients: clipped)
-                eval(model, optimizer)
-                totalLoss += lossValue.item(Float.self)
+                let (loss, windowCount): (Float, Int) = autoreleasepool {
+                    let combinedTargets = makeAuxTargets(
+                        driveTargets: batch.targetDrives,
+                        auxTargets: batch.targetAux
+                    )
+                    let (lossValue, grads) = lg(model, batch.trunks, combinedTargets)
+                    let clipped = clipIfNeeded(grads, maxNorm: config.maxGradNorm)
+                    optimizer.update(model: model, gradients: clipped)
+                    eval(model, optimizer)
+                    return (lossValue.item(Float.self), batchWindowCount(combinedTargets))
+                }
+                totalLoss += loss * Float(windowCount)
+                totalWindowCount += windowCount
             }
-            epochLosses.append(totalLoss / Float(max(batches.count, 1)))
+            epochLosses.append(totalLoss / Float(max(totalWindowCount, 1)))
         }
 
         model.train(false)
@@ -279,21 +294,25 @@ public enum ManasMLXTrainer {
         for epochIndex in 0..<config.epochs {
             var totalLoss: Float = 0
             let batchCount = max(batches.count, 1)
+            var totalWindowCount = 0
             for (index, batch) in batches.enumerated() {
-                let combinedTargets = makeAuxTargets(
-                    driveTargets: batch.targetDrives,
-                    auxTargets: batch.targetAux
-                )
-                let (lossValue, grads) = lg(model, batch.trunks, combinedTargets)
-                let clipped = clipIfNeeded(grads, maxNorm: config.maxGradNorm)
-                optimizer.update(model: model, gradients: clipped)
-                eval(model, optimizer)
-                let loss = lossValue.item(Float.self)
-                totalLoss += loss
+                let (loss, windowCount): (Float, Int) = autoreleasepool {
+                    let combinedTargets = makeAuxTargets(
+                        driveTargets: batch.targetDrives,
+                        auxTargets: batch.targetAux
+                    )
+                    let (lossValue, grads) = lg(model, batch.trunks, combinedTargets)
+                    let clipped = clipIfNeeded(grads, maxNorm: config.maxGradNorm)
+                    optimizer.update(model: model, gradients: clipped)
+                    eval(model, optimizer)
+                    return (lossValue.item(Float.self), batchWindowCount(combinedTargets))
+                }
+                totalLoss += loss * Float(windowCount)
+                totalWindowCount += windowCount
                 onProgress?(epochIndex + 1, index + 1, batchCount, loss)
                 await Task.yield()
             }
-            let epochLoss = totalLoss / Float(batchCount)
+            let epochLoss = totalLoss / Float(max(totalWindowCount, 1))
             epochLosses.append(epochLoss)
             await Task.yield()
             if earlyStop?.shouldStop(after: epochLoss) == true { break }
@@ -471,6 +490,16 @@ public enum ManasMLXTrainer {
         auxTargets: MLXArray
     ) -> MLXArray {
         let driveShape = driveTargets.shape
+        if driveShape.count == 3 {
+            let batchSize = driveShape[0]
+            let sequenceLength = driveShape[1]
+            let auxSize = auxTargets.shape.last ?? 0
+            let normalizedAux = auxTargets.ndim == 2
+                ? auxTargets.reshaped([batchSize, 1, auxSize])
+                : auxTargets
+            let expandedAux = repeated(normalizedAux, count: sequenceLength, axis: 1)
+            return concatenated([driveTargets, expandedAux], axis: -1)
+        }
         guard driveShape.count == 2 else {
             return concatenated([driveTargets, auxTargets], axis: -1)
         }
@@ -488,5 +517,11 @@ public enum ManasMLXTrainer {
         let shape = targets.shape
         guard shape.count == 2 else { return targets }
         return targets.reshaped([1, shape[0], shape[1]])
+    }
+
+    private static func batchWindowCount(_ targets: MLXArray) -> Int {
+        let shape = targets.shape
+        guard shape.count >= 3 else { return 1 }
+        return max(1, shape[0])
     }
 }
