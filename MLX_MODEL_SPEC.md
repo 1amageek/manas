@@ -41,6 +41,10 @@ flowchart LR
   acceptance gates, artifact export, or typed runtime outputs require host data.
 - Robot-specific encoders may produce semantic observations, but tensor ownership
   and lazy-evaluation policy are generic Manas MLX responsibilities.
+- Do not partition execution by a fixed host/accelerator ratio. The boundary is
+  data ownership: sidecar metadata remains typed Swift data, while continuous
+  training tensors enter MLX once and stay lazy until an explicit host-facing
+  decision point requires materialization.
 
 ## Inputs / Outputs
 - **Inputs**:
@@ -74,9 +78,12 @@ Unless a benchmark profile explicitly overrides, MLX runtime uses:
 - Maximum descending channel count: `64` (higher counts require upstream compression).
 - Runtime channel-drop handling: fixed catalog + validity mask with neutral-bias decay.
 
-### Compatibility Path
-- Legacy fixed-input core path is allowed for backward compatibility.
-- New model configurations must prefer descriptor-driven typed mode.
+### Deprecated Fixed-Input Fixtures
+- Fixed-input core configurations are fixtures for regression tests or archived
+  benchmark evidence only.
+- Production model configurations must use descriptor-driven typed mode.
+- When a fixed-input path is no longer required by an explicit fixture, remove it
+  instead of preserving it as an alternate production route.
 
 ## Reflex Architecture
 - Hybrid reflex mode is supported:
