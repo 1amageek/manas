@@ -118,6 +118,51 @@ import Testing
     }
 }
 
+@Test(.timeLimit(.minutes(1))) func manasModelBundleMetadataPolicySkipsDigestMismatch() throws {
+    let root = try makeTemporaryBundleRoot()
+    try write(Data("{}".utf8), to: root.appendingPathComponent("model.json"))
+    try write(Data("core".utf8), to: root.appendingPathComponent("core.safetensors"))
+    let manifest = makeManifest(components: [
+        .init(role: .modelConfig, path: "model.json", contentType: "application/json"),
+        .init(
+            role: .coreWeights,
+            path: "core.safetensors",
+            contentType: "application/vnd.safetensors",
+            byteCount: 4,
+            fnv1a64: "0000000000000000"
+        )
+    ])
+    try ManasModelBundleWriter().write(manifest, to: root)
+
+    let loaded = try ManasModelBundleValidator().loadAndValidate(from: root, policy: .componentMetadata)
+    #expect(loaded == manifest)
+}
+
+@Test(.timeLimit(.minutes(1))) func manasModelBundleMetadataPolicyRejectsByteCountMismatch() throws {
+    let root = try makeTemporaryBundleRoot()
+    try write(Data("{}".utf8), to: root.appendingPathComponent("model.json"))
+    try write(Data("core".utf8), to: root.appendingPathComponent("core.safetensors"))
+    let manifest = makeManifest(components: [
+        .init(role: .modelConfig, path: "model.json", contentType: "application/json"),
+        .init(
+            role: .coreWeights,
+            path: "core.safetensors",
+            contentType: "application/vnd.safetensors",
+            byteCount: 99,
+            fnv1a64: "0000000000000000"
+        )
+    ])
+    try ManasModelBundleWriter().write(manifest, to: root)
+
+    #expect(throws: ManasModelBundleValidationError.byteCountMismatch(
+        path: "core.safetensors",
+        expected: 99,
+        actual: 4
+    )) {
+        try ManasModelBundleValidator().loadAndValidate(from: root, policy: .componentMetadata)
+    }
+}
+
 private func makeManifest(components: [ManasModelBundleComponent]) -> ManasModelBundleManifest {
     ManasModelBundleManifest(
         bundleID: "bundle",

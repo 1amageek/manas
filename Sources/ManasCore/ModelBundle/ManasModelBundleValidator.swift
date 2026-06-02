@@ -5,7 +5,8 @@ public struct ManasModelBundleValidator: Sendable {
 
     public func loadAndValidate(
         from bundleRoot: URL,
-        manifestFileName: String = ManasModelBundleManifest.defaultFileName
+        manifestFileName: String = ManasModelBundleManifest.defaultFileName,
+        policy: ManasModelBundleValidationPolicy = .full
     ) throws -> ManasModelBundleManifest {
         let manifestURL = bundleRoot.appendingPathComponent(manifestFileName, isDirectory: false)
         guard FileManager.default.fileExists(atPath: manifestURL.path) else {
@@ -16,13 +17,14 @@ public struct ManasModelBundleValidator: Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(ManasModelBundleManifest.self, from: data)
-        try validate(manifest, bundleRoot: bundleRoot)
+        try validate(manifest, bundleRoot: bundleRoot, policy: policy)
         return manifest
     }
 
     public func validate(
         _ manifest: ManasModelBundleManifest,
-        bundleRoot: URL
+        bundleRoot: URL,
+        policy: ManasModelBundleValidationPolicy = .full
     ) throws {
         guard manifest.schemaVersion == ManasModelBundleManifest.currentSchemaVersion else {
             throw ManasModelBundleValidationError.unsupportedSchemaVersion(manifest.schemaVersion)
@@ -35,7 +37,7 @@ public struct ManasModelBundleValidator: Sendable {
         }
         try validate(runtimeContract: manifest.runtimeContract)
         try validateRequiredRoles(in: manifest.components)
-        try validateComponents(manifest.components, bundleRoot: bundleRoot)
+        try validateComponents(manifest.components, bundleRoot: bundleRoot, policy: policy)
     }
 
     private func validate(runtimeContract: ManasModelBundleRuntimeContract) throws {
@@ -87,8 +89,10 @@ public struct ManasModelBundleValidator: Sendable {
 
     private func validateComponents(
         _ components: [ManasModelBundleComponent],
-        bundleRoot: URL
+        bundleRoot: URL,
+        policy: ManasModelBundleValidationPolicy
     ) throws {
+        let fileManager = FileManager.default
         for component in components {
             guard isSafeRelativePath(component.path) else {
                 throw ManasModelBundleValidationError.invalidComponentPath(component.path)
@@ -99,32 +103,46 @@ public struct ManasModelBundleValidator: Sendable {
 
             let url = bundleRoot.appendingPathComponent(component.path, isDirectory: false)
             if component.required {
-                guard FileManager.default.fileExists(atPath: url.path) else {
+                guard fileManager.fileExists(atPath: url.path) else {
                     throw ManasModelBundleValidationError.missingRequiredComponent(component.path)
                 }
             }
-            guard FileManager.default.fileExists(atPath: url.path) else {
+            guard fileManager.fileExists(atPath: url.path) else {
                 continue
             }
-            let data = try Data(contentsOf: url)
-            if let expectedByteCount = component.byteCount, expectedByteCount != data.count {
-                throw ManasModelBundleValidationError.byteCountMismatch(
-                    path: component.path,
-                    expected: expectedByteCount,
-                    actual: data.count
-                )
-            }
-            if let expectedDigest = component.fnv1a64 {
-                let actualDigest = Self.fnv1a64Hex(for: data)
-                guard expectedDigest == actualDigest else {
-                    throw ManasModelBundleValidationError.digestMismatch(
+
+            if policy.validateComponentByteCounts, let expectedByteCount = component.byteCount {
+                let actualByteCount = try byteCount(of: url, fileManager: fileManager)
+                guard expectedByteCount == actualByteCount else {
+                    throw ManasModelBundleValidationError.byteCountMismatch(
                         path: component.path,
-                        expected: expectedDigest,
-                        actual: actualDigest
+                        expected: expectedByteCount,
+                        actual: actualByteCount
                     )
                 }
             }
+            guard policy.validateComponentDigests, let expectedDigest = component.fnv1a64 else {
+                continue
+            }
+            let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+            let actualDigest = Self.fnv1a64Hex(for: data)
+            guard expectedDigest == actualDigest else {
+                throw ManasModelBundleValidationError.digestMismatch(
+                    path: component.path,
+                    expected: expectedDigest,
+                    actual: actualDigest
+                )
+            }
         }
+    }
+
+    private func byteCount(of url: URL, fileManager: FileManager) throws -> Int {
+        let attributes = try fileManager.attributesOfItem(atPath: url.path)
+        if let number = attributes[.size] as? NSNumber {
+            return number.intValue
+        }
+        let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        return data.count
     }
 
     private func isSafeRelativePath(_ path: String) -> Bool {
@@ -141,7 +159,7 @@ public struct ManasModelBundleValidator: Sendable {
     }
 
     public static func fnv1a64Hex(for data: Data) -> String {
-        let digest = FNV1a64.hash(data: [UInt8](data))
+        let digest = FNV1a64.hash(data: data)
         return String(format: "%016llx", digest)
     }
 }

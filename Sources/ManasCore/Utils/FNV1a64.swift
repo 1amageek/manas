@@ -1,14 +1,27 @@
+import Foundation
+
 public struct FNV1a64 {
     private static let offset: UInt64 = 0xcbf29ce484222325
     private static let prime: UInt64 = 0x00000100000001b3
 
     public static func hash(data: [UInt8]) -> UInt64 {
+        data.withUnsafeBufferPointer { buffer in
+            hash(bytes: UnsafeRawBufferPointer(buffer))
+        }
+    }
+
+    public static func hash(data: Data) -> UInt64 {
+        data.withUnsafeBytes { buffer in
+            hash(bytes: buffer)
+        }
+    }
+
+    public static func hash(bytes: UnsafeRawBufferPointer) -> UInt64 {
         var value = offset
-        for byte in data {
+        for byte in bytes {
             value ^= UInt64(byte)
             value &*= prime
         }
         return value
     }
 }
-
