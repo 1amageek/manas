@@ -14,7 +14,7 @@ public struct ConfigHash {
         } catch {
             throw ValidationError.encodingFailed
         }
-        let digest = FNV1a64.hash(data: [UInt8](data))
+        let digest = FNV1a64.hash(data: data)
         return String(format: "%016llx", digest)
     }
 }

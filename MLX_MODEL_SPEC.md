@@ -18,6 +18,30 @@ mapping constraints.
 - **ManasMLXRuntime**: adapters to `CoreController` and `ReflexController`.
 - **ManasMLXTraining**: training loops, losses, and optimization.
 
+## Tensor Ingress and Copy Policy
+Training and runtime adapters should treat `MLXArray` creation as a single
+ownership boundary:
+
+```mermaid
+flowchart LR
+  A["Descriptor / Dataset / Rollout Metadata"] --> B["Swift sidecar metadata"]
+  A --> C["Owned Float32 tensor buffer"]
+  C --> D["MLXArray rawPointer ownership transfer"]
+  D --> E["Lazy MLX graph"]
+  E --> F["Explicit eval / scalar extraction boundary"]
+```
+
+- Large training tensors MUST be staged in an owned contiguous Float32 buffer and
+  transferred to `MLXArray` with the raw-pointer initializer.
+- Batch builders SHOULD NOT build a large `[Float]` only to pass it to an
+  `MLXArray` initializer that copies again.
+- Swift arrays remain acceptable for small typed metadata, validation sidecars,
+  and final scalar extraction needed by gates or logs.
+- Keep tensor operations in MLX after ingress and delay `eval` / `asArray` until
+  acceptance gates, artifact export, or typed runtime outputs require host data.
+- Robot-specific encoders may produce semantic observations, but tensor ownership
+  and lazy-evaluation policy are generic Manas MLX responsibilities.
+
 ## Inputs / Outputs
 - **Inputs**:
   - ascending channels (sensor-derived streams),

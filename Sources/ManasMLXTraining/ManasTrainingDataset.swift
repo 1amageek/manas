@@ -129,19 +129,21 @@ public struct ManasTrainingBatchBuilder {
         batches.reserveCapacity((starts.count + miniBatchSize - 1) / miniBatchSize)
 
         for chunk in windowStartChunks(starts) {
-            var trunkValues: [Float] = []
-            var targetValues: [Float] = []
-            trunkValues.reserveCapacity(chunk.count * sequenceLength * trunkSize)
-            targetValues.reserveCapacity(chunk.count * sequenceLength * driveCount)
+            let trunkValues = ManasMLXOwnedFloatTensorBuffer(
+                capacity: chunk.count * sequenceLength * trunkSize
+            )
+            let targetValues = ManasMLXOwnedFloatTensorBuffer(
+                capacity: chunk.count * sequenceLength * driveCount
+            )
 
             for start in chunk {
-                appendWindowValues(from: vectors, start: start, length: sequenceLength, to: &trunkValues)
-                appendWindowValues(from: targets, start: start, length: sequenceLength, to: &targetValues)
+                appendWindowValues(from: vectors, start: start, length: sequenceLength, to: trunkValues)
+                appendWindowValues(from: targets, start: start, length: sequenceLength, to: targetValues)
             }
 
             batches.append(ManasMLXSequenceBatch(
-                trunks: MLXArray(trunkValues, [chunk.count, sequenceLength, trunkSize]),
-                targetDrives: MLXArray(targetValues, [chunk.count, sequenceLength, driveCount])
+                trunks: trunkValues.makeArray(shape: [chunk.count, sequenceLength, trunkSize]),
+                targetDrives: targetValues.makeArray(shape: [chunk.count, sequenceLength, driveCount])
             ))
         }
 
@@ -165,23 +167,24 @@ public struct ManasTrainingBatchBuilder {
         batches.reserveCapacity((starts.count + miniBatchSize - 1) / miniBatchSize)
 
         for chunk in windowStartChunks(starts) {
-            var trunkValues: [Float] = []
-            var targetValues: [Float] = []
-            var auxValues: [Float] = []
-            trunkValues.reserveCapacity(chunk.count * sequenceLength * trunkSize)
-            targetValues.reserveCapacity(chunk.count * sequenceLength * driveCount)
-            auxValues.reserveCapacity(chunk.count * trunkSize)
+            let trunkValues = ManasMLXOwnedFloatTensorBuffer(
+                capacity: chunk.count * sequenceLength * trunkSize
+            )
+            let targetValues = ManasMLXOwnedFloatTensorBuffer(
+                capacity: chunk.count * sequenceLength * driveCount
+            )
+            let auxValues = ManasMLXOwnedFloatTensorBuffer(capacity: chunk.count * trunkSize)
 
             for start in chunk {
-                appendWindowValues(from: vectors, start: start, length: sequenceLength, to: &trunkValues)
-                appendWindowValues(from: targets, start: start, length: sequenceLength, to: &targetValues)
+                appendWindowValues(from: vectors, start: start, length: sequenceLength, to: trunkValues)
+                appendWindowValues(from: targets, start: start, length: sequenceLength, to: targetValues)
                 auxValues.append(contentsOf: vectors[start + sequenceLength])
             }
 
             batches.append(ManasMLXAuxSequenceBatch(
-                trunks: MLXArray(trunkValues, [chunk.count, sequenceLength, trunkSize]),
-                targetDrives: MLXArray(targetValues, [chunk.count, sequenceLength, driveCount]),
-                targetAux: MLXArray(auxValues, [chunk.count, 1, trunkSize])
+                trunks: trunkValues.makeArray(shape: [chunk.count, sequenceLength, trunkSize]),
+                targetDrives: targetValues.makeArray(shape: [chunk.count, sequenceLength, driveCount]),
+                targetAux: auxValues.makeArray(shape: [chunk.count, 1, trunkSize])
             ))
         }
 
@@ -202,15 +205,15 @@ public struct ManasTrainingBatchBuilder {
                 try SignalSample(channelIndex: sample.channelIndex, value: sample.value, timestamp: sample.timestamp)
             }
             let (_, output) = try pipeline.step(samples: samples, time: record.time)
-            let input = MLXArray(
+            let input = ManasMLXOwnedFloatTensorBuffer.makeArray(
                 converting: output.fastTaps,
-                [1, output.fastTaps.count]
+                shape: [1, output.fastTaps.count]
             )
             let targets = mapReflexTargets(record.reflexCorrections)
 
-            let clamp = MLXArray(converting: targets.clamp.map(Double.init), [1, driveCount])
-            let damping = MLXArray(converting: targets.damping.map(Double.init), [1, driveCount])
-            let delta = MLXArray(converting: targets.delta.map(Double.init), [1, driveCount])
+            let clamp = ManasMLXOwnedFloatTensorBuffer.makeArray(values: targets.clamp, shape: [1, driveCount])
+            let damping = ManasMLXOwnedFloatTensorBuffer.makeArray(values: targets.damping, shape: [1, driveCount])
+            let delta = ManasMLXOwnedFloatTensorBuffer.makeArray(values: targets.delta, shape: [1, driveCount])
             batches.append(ManasMLXReflexBatch(inputs: input, targetClamp: clamp, targetDamping: damping, targetDelta: delta))
             if let maxBatches, batches.count >= maxBatches {
                 break
@@ -242,33 +245,34 @@ public struct ManasTrainingBatchBuilder {
         batches.reserveCapacity((starts.count + miniBatchSize - 1) / miniBatchSize)
 
         for chunk in windowStartChunks(starts) {
-            var trunkValues: [Float] = []
-            var targetValues: [Float] = []
-            var rewardValues: [Float] = []
-            var continueValues: [Float] = []
-            trunkValues.reserveCapacity(chunk.count * sequenceLength * trunkSize)
-            targetValues.reserveCapacity(chunk.count * sequenceLength * driveCount)
-            rewardValues.reserveCapacity(chunk.count * sequenceLength)
-            continueValues.reserveCapacity(chunk.count * sequenceLength)
+            let trunkValues = ManasMLXOwnedFloatTensorBuffer(
+                capacity: chunk.count * sequenceLength * trunkSize
+            )
+            let targetValues = ManasMLXOwnedFloatTensorBuffer(
+                capacity: chunk.count * sequenceLength * driveCount
+            )
+            let rewardValues = ManasMLXOwnedFloatTensorBuffer(capacity: chunk.count * sequenceLength)
+            let continueValues = ManasMLXOwnedFloatTensorBuffer(capacity: chunk.count * sequenceLength)
 
             for start in chunk {
-                appendWindowValues(from: vectors, start: start, length: sequenceLength, to: &trunkValues)
-                appendWindowValues(from: targets, start: start, length: sequenceLength, to: &targetValues)
-                appendScalarWindowValues(from: rewards, start: start, length: sequenceLength, to: &rewardValues)
+                appendWindowValues(from: vectors, start: start, length: sequenceLength, to: trunkValues)
+                appendWindowValues(from: targets, start: start, length: sequenceLength, to: targetValues)
+                appendScalarWindowValues(from: rewards, start: start, length: sequenceLength, to: rewardValues)
 
-                var windowContinueValues = Array(repeating: Float(1.0), count: sequenceLength)
                 let terminalRecord = dataset.records[start + sequenceLength - 1]
-                if terminalRecord.done == true || terminalRecord.truncated == true || start + sequenceLength == vectors.count {
-                    windowContinueValues[sequenceLength - 1] = 0.0
+                let terminalStopsContinuation = terminalRecord.done == true
+                    || terminalRecord.truncated == true
+                    || start + sequenceLength == vectors.count
+                for offset in 0..<sequenceLength {
+                    continueValues.append(terminalStopsContinuation && offset == sequenceLength - 1 ? 0 : 1)
                 }
-                continueValues.append(contentsOf: windowContinueValues)
             }
 
             batches.append(ManasMLXWorldModelBatch(
-                trunks: MLXArray(trunkValues, [chunk.count, sequenceLength, trunkSize]),
-                targetDrives: MLXArray(targetValues, [chunk.count, sequenceLength, driveCount]),
-                rewards: MLXArray(rewardValues, [chunk.count, sequenceLength, 1]),
-                continues: MLXArray(continueValues, [chunk.count, sequenceLength, 1])
+                trunks: trunkValues.makeArray(shape: [chunk.count, sequenceLength, trunkSize]),
+                targetDrives: targetValues.makeArray(shape: [chunk.count, sequenceLength, driveCount]),
+                rewards: rewardValues.makeArray(shape: [chunk.count, sequenceLength, 1]),
+                continues: continueValues.makeArray(shape: [chunk.count, sequenceLength, 1])
             ))
         }
 
@@ -373,7 +377,7 @@ public struct ManasTrainingBatchBuilder {
         from rows: [[Float]],
         start: Int,
         length: Int,
-        to values: inout [Float]
+        to values: ManasMLXOwnedFloatTensorBuffer
     ) {
         for index in start..<start + length {
             values.append(contentsOf: rows[index])
@@ -384,7 +388,7 @@ public struct ManasTrainingBatchBuilder {
         from rows: [Float],
         start: Int,
         length: Int,
-        to values: inout [Float]
+        to values: ManasMLXOwnedFloatTensorBuffer
     ) {
         for index in start..<start + length {
             values.append(rows[index])
