@@ -12,6 +12,8 @@ Manas is a general-purpose nerve network for robotic control, inspired by the sp
 - **Type embeddings**: Ascending and descending channels use the same shared encoder, distinguished by type embeddings.
 - **Specialization via LoRA**: Morphology-specific adaptation without architectural changes.
 - **Target**: < 1M params base (~540K), iPhone Neural Engine deployment.
+- **Boundary discipline**: Generic model code owns learning architecture;
+  robot profiles own physical semantics. See `MODEL_BOUNDARY_GUIDE.md`.
 
 ### Layer Stack (L0-L6)
 

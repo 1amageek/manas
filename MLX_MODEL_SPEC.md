@@ -8,6 +8,8 @@ mapping constraints.
 ## Baseline Priority
 - `MANAS_NERVE_NETWORK_DESIGN.md` is the architecture baseline.
 - This file defines MLX implementation constraints and must stay consistent with it.
+- `MODEL_BOUNDARY_GUIDE.md` defines the boundary between generic Manas model
+  logic and robot-specific descriptor/codec/profile specialization.
 
 ## Module Boundaries
 - **ManasCore**: protocol layers and deterministic contracts.
