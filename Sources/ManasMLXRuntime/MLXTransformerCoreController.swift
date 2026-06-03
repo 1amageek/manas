@@ -25,7 +25,7 @@ public struct MLXTransformerCoreController: CoreController, GoalConditionedCoreC
     }
 
     public mutating func update(trunks: TrunkBundle, time: TimeInterval) throws -> [DriveIntent] {
-        let vector = concatTrunks(trunks)
+        let vector = ManasMLXRuntimeTensorInput.trunkVector(from: trunks)
         trunkHistory.append(vector)
         if trunkHistory.count > maxSequenceLength {
             trunkHistory.removeFirst(trunkHistory.count - maxSequenceLength)
@@ -33,8 +33,7 @@ public struct MLXTransformerCoreController: CoreController, GoalConditionedCoreC
 
         let seqLen = trunkHistory.count
         let inputSize = vector.count
-        let flat = trunkHistory.flatMap { $0 }
-        let input = MLXArray(converting: flat.map(Double.init), [1, seqLen, inputSize])
+        let input = ManasMLXRuntimeTensorInput.trunkHistoryInput(history: trunkHistory, inputSize: inputSize)
 
         let output = model.forward(trunks: input)
         let lastIndex = output.drives.dim(-2) - 1
@@ -54,7 +53,7 @@ public struct MLXTransformerCoreController: CoreController, GoalConditionedCoreC
             return try update(trunks: trunks, time: time)
         }
 
-        let vector = concatTrunks(trunks)
+        let vector = ManasMLXRuntimeTensorInput.trunkVector(from: trunks)
         trunkHistory.append(vector)
         if trunkHistory.count > maxSequenceLength {
             trunkHistory.removeFirst(trunkHistory.count - maxSequenceLength)
@@ -62,14 +61,8 @@ public struct MLXTransformerCoreController: CoreController, GoalConditionedCoreC
 
         let seqLen = trunkHistory.count
         let inputSize = vector.count
-        let flat = trunkHistory.flatMap { $0 }
-        let input = MLXArray(converting: flat.map(Double.init), [1, seqLen, inputSize])
-
-        let goalVector = goals.first.map { $0.vector.map(Float.init) }
-            ?? [Float](repeating: 0, count: goalSize)
-        let paddedGoal = Array(goalVector.prefix(goalSize))
-            + [Float](repeating: 0, count: max(0, goalSize - goalVector.count))
-        let goalArray = MLXArray(converting: paddedGoal.map(Double.init), [1, 1, goalSize])
+        let input = ManasMLXRuntimeTensorInput.trunkHistoryInput(history: trunkHistory, inputSize: inputSize)
+        let goalArray = ManasMLXRuntimeTensorInput.goalInput(goals: goals, size: goalSize)
 
         let output = model.forward(trunks: input, goals: goalArray)
         let lastIndex = output.drives.dim(-2) - 1
@@ -82,13 +75,6 @@ public struct MLXTransformerCoreController: CoreController, GoalConditionedCoreC
 
     public mutating func reset() {
         trunkHistory.removeAll()
-    }
-
-    private func concatTrunks(_ bundle: TrunkBundle) -> [Float] {
-        bundle.energy.map(Float.init)
-        + bundle.phase.map(Float.init)
-        + bundle.quality.map(Float.init)
-        + bundle.spike.map(Float.init)
     }
 
     private func buildDriveIntents(_ values: [Float]) throws -> [DriveIntent] {

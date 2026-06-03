@@ -26,8 +26,7 @@ public struct MLXTemporalCoreController: TemporalCoreController {
         time: TimeInterval,
         horizonSteps: Int
     ) throws -> [TemporalDriveWindow] {
-        let vector = concatTrunks(trunks)
-        let input = MLXArray(converting: vector.map(Double.init), [1, 1, vector.count])
+        let input = ManasMLXRuntimeTensorInput.trunkInput(from: trunks)
 
         let steps = min(horizonSteps, model.config.maxHorizonSteps)
         let output = model.forward(trunks: input, state: state, horizonSteps: steps)
@@ -76,12 +75,5 @@ public struct MLXTemporalCoreController: TemporalCoreController {
         }
 
         return windows
-    }
-
-    private func concatTrunks(_ bundle: TrunkBundle) -> [Float] {
-        bundle.energy.map(Float.init)
-        + bundle.phase.map(Float.init)
-        + bundle.quality.map(Float.init)
-        + bundle.spike.map(Float.init)
     }
 }

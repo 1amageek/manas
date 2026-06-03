@@ -23,8 +23,7 @@ public struct ManasMLXCoreController: CoreController {
     }
 
     public mutating func update(trunks: TrunkBundle, time: TimeInterval) throws -> [DriveIntent] {
-        let vector = concatTrunks(trunks)
-        let input = MLXArray(converting: vector.map(Double.init), [1, 1, vector.count])
+        let input = ManasMLXRuntimeTensorInput.trunkInput(from: trunks)
         let output = model.forward(trunks: input, state: state)
         state = output.nextState
         let lastIndex = output.drives.dim(-2) - 1
@@ -38,12 +37,5 @@ public struct ManasMLXCoreController: CoreController {
             }
             return try DriveIntent(index: DriveIndex(UInt32(index)), activation: clamped)
         }
-    }
-
-    private func concatTrunks(_ bundle: TrunkBundle) -> [Float] {
-        bundle.energy.map(Float.init)
-        + bundle.phase.map(Float.init)
-        + bundle.quality.map(Float.init)
-        + bundle.spike.map(Float.init)
     }
 }

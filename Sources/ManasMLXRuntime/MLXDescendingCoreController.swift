@@ -27,13 +27,14 @@ public struct MLXDescendingCoreController: GoalConditionedCoreController {
         goals: [ControlGoal],
         time: TimeInterval
     ) throws -> [DriveIntent] {
-        let vector = concatTrunks(trunks)
-        let input = MLXArray(converting: vector.map(Double.init), [1, 1, vector.count])
+        let input = ManasMLXRuntimeTensorInput.trunkInput(from: trunks)
 
         let descending: MLXArray?
         if model.config.descendingEnabled {
-            let descVector = buildDescendingVector(goals: goals)
-            descending = MLXArray(converting: descVector.map(Double.init), [1, descVector.count])
+            descending = ManasMLXRuntimeTensorInput.descendingInput(
+                goals: goals,
+                size: model.config.descendingSize
+            )
         } else {
             descending = nil
         }
@@ -53,24 +54,5 @@ public struct MLXDescendingCoreController: GoalConditionedCoreController {
             }
             return try DriveIntent(index: DriveIndex(UInt32(index)), activation: clamped)
         }
-    }
-
-    private func concatTrunks(_ bundle: TrunkBundle) -> [Float] {
-        bundle.energy.map(Float.init)
-        + bundle.phase.map(Float.init)
-        + bundle.quality.map(Float.init)
-        + bundle.spike.map(Float.init)
-    }
-
-    private func buildDescendingVector(goals: [ControlGoal]) -> [Float] {
-        let descSize = model.config.descendingSize
-        guard let primary = goals.first else {
-            return [Float](repeating: 0, count: descSize)
-        }
-        let vector = primary.vector.map(Float.init)
-        if vector.count >= descSize {
-            return Array(vector.prefix(descSize))
-        }
-        return vector + [Float](repeating: 0, count: descSize - vector.count)
     }
 }
